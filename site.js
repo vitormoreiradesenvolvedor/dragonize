@@ -15,12 +15,25 @@
     b.addEventListener('click', function () { setLang(b.dataset.set); });
   });
 
+  var menu = document.getElementById('menuBtn'), nav = document.querySelector('.nav');
+  menu.addEventListener('click', function () {
+    var open = nav.classList.toggle('open');
+    menu.setAttribute('aria-expanded', open);
+  });
+  nav.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () {
+      nav.classList.remove('open');
+      menu.setAttribute('aria-expanded', 'false');
+    });
+  });
+
   var img = document.getElementById('shotImg'), cap = document.getElementById('shotCap');
   document.querySelectorAll('#shotTabs button').forEach(function (b) {
     b.addEventListener('click', function () {
       document.querySelectorAll('#shotTabs button').forEach(function (x) { x.classList.remove('on'); });
       b.classList.add('on');
       img.src = 'img/' + b.dataset.img;
+      document.getElementById('shotLink').href = 'img/' + b.dataset.img;
       cap.textContent = b.dataset.cap;
     });
   });

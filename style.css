@@ -201,11 +201,54 @@ footer .wrap { display: grid; gap: 14px; }
 footer .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 footer img { height: 26px; }
 
+.menu { display: none; }
+.zoom { display: none; }
+.steps > *, .grid3 > *, .notices > * { min-width: 0; }
+
 @media (max-width: 860px) {
-  .nav { display: none; }
+  header { background: #000; backdrop-filter: none; }
+  header .wrap { gap: 12px; }
   .lang { margin-left: auto; }
+  .menu {
+    display: grid; gap: 5px; place-content: center;
+    width: 42px; height: 38px; background: none; cursor: pointer;
+    border: 1px solid var(--red-dk); border-radius: var(--radius);
+  }
+  .menu span { display: block; width: 20px; height: 2px; background: var(--text); transition: transform .2s, opacity .2s; }
+  .menu[aria-expanded="true"] span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .menu[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+  .menu[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  .nav {
+    display: none; position: absolute; top: 64px; left: 0; right: 0;
+    flex-direction: column; gap: 0; margin: 0;
+    background: #050505; border-bottom: 1px solid var(--red-dk); box-shadow: 0 12px 30px rgba(0,0,0,.8);
+  }
+  .nav.open { display: flex; }
+  .nav a { padding: 14px 20px; border-top: 1px solid #1a1a1a; font-size: 17px; }
   .notices, .grid3 { grid-template-columns: 1fr; }
   .stats { grid-template-columns: 1fr 1fr; }
   .notices { margin-top: 0; }
   section { padding: 60px 0; }
+  .zoom { display: inline; }
+}
+
+@media (max-width: 560px) {
+  .wrap { padding: 0 16px; }
+  .brand img.d { height: 32px; }
+  .brand img.w { height: 16px; }
+  .hero { padding: 20px 0 50px; }
+  .cta { flex-direction: column; align-items: stretch; }
+  .btn { justify-content: center; }
+  .notice, .card { padding: 20px; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px 18px; padding: 0 16px 4px; scrollbar-width: none; }
+  .tabs button { flex: 0 0 auto; font-size: 15px; padding: 7px 14px; }
+  .shot { padding: 6px; }
+  .stat b { font-size: 38px; }
+  td, th { padding: 12px; font-size: 14px; }
+  .step { padding: 64px 18px 18px; }
+  .step::after { left: 18px; top: 16px; }
+  .code { font-size: 12.5px; padding: 36px 14px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .code .copy { top: 6px; right: 6px; }
+  .feedback { padding: 34px 18px; }
+  .feedback ul { padding-left: 18px; }
 }
