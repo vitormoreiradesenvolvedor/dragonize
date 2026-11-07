@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragonize · Redragon mice and keyboards on Linux</title>
+<meta name="description" content="Unofficial Linux configuration tool for Redragon gaming mice and keyboards. Buttons, macros, DPI and RGB lighting, no Wine needed.">
+<meta property="og:title" content="Dragonize">
+<meta property="og:description" content="Configure Redragon gaming mice and keyboards on Linux. Unofficial, in testing phase.">
+<meta property="og:image" content="https://vitormoreiradesenvolvedor.github.io/dragonize/img/og.jpg">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000;
+  --bg2: #0a0a0a;
+  --panel: #0e0e0e;
+  --line: #2a0b0b;
+  --red: #e60012;
+  --red-hi: #ff1a2b;
+  --red-dk: #8a0a0a;
+  --text: #ececec;
+  --muted: #9b9b9b;
+  --radius: 4px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 Inter, system-ui, sans-serif;
+  overflow-x: hidden;
+}
+a { color: var(--red-hi); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; display: block; }
+h1, h2, h3, .nav a, .btn, .tag, .stat b {
+  font-family: Rajdhani, Inter, sans-serif;
+  letter-spacing: .04em;
+}
+h2 {
+  font-size: clamp(28px, 4vw, 40px);
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+h2 span { color: var(--red); }
+h3 { font-size: 21px; text-transform: uppercase; margin: 0 0 10px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+section { padding: 84px 0; position: relative; }
+.lead { color: var(--muted); max-width: 680px; margin: 0 0 36px; }
+
+/* language switch: only the chosen language is shown */
+html[data-lang="en"] [lang="pt"],
+html[data-lang="pt"] [lang="en"] { display: none !important; }
+
+/* header */
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(0,0,0,.86);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+header .wrap { display: flex; align-items: center; gap: 22px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img.d { height: 38px; }
+.brand img.w { height: 20px; }
+.nav { display: flex; gap: 22px; margin-left: auto; }
+.nav a { color: var(--text); font-weight: 600; text-transform: uppercase; font-size: 15px; }
+.nav a:hover { color: var(--red-hi); text-decoration: none; }
+.lang { display: flex; border: 1px solid var(--red-dk); border-radius: var(--radius); overflow: hidden; }
+.lang button {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font: 600 13px Rajdhani, sans-serif; padding: 6px 10px; letter-spacing: .06em;
+}
+.lang button.on { background: var(--red); color: #fff; }
+
+/* hero */
+.hero {
+  padding: 40px 0 70px;
+  background:
+    radial-gradient(ellipse at 50% 35%, rgba(230,0,18,.18), transparent 60%),
+    var(--bg);
+  text-align: center;
+  overflow: hidden;
+}
+.hero::before, .hero::after {
+  content: ""; position: absolute; width: 60vw; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+  box-shadow: 0 0 18px var(--red);
+  transform: rotate(-38deg); opacity: .55;
+}
+.hero::before { top: 18%; left: -30vw; }
+.hero::after { bottom: 14%; right: -30vw; }
+.hero img.logo {
+  width: min(820px, 100%); margin: 0 auto;
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 62%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 62%, transparent 100%);
+}
+.tags { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 6px 0 18px; }
+.tag {
+  border: 1px solid var(--red); color: var(--red-hi); padding: 2px 12px;
+  border-radius: var(--radius); font-weight: 700; font-size: 14px; text-transform: uppercase;
+}
+.hero p.sub { font-size: clamp(18px, 2.4vw, 22px); max-width: 700px; margin: 0 auto 30px; }
+.cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 26px; border-radius: var(--radius);
+  font-weight: 700; font-size: 18px; text-transform: uppercase;
+  border: 1px solid var(--red); color: #fff; cursor: pointer;
+  transition: background .15s, box-shadow .15s, transform .15s;
+}
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn.primary { background: linear-gradient(180deg, var(--red-hi), var(--red) 55%, #b5000e); box-shadow: 0 0 22px rgba(230,0,18,.45); }
+.btn.primary:hover { box-shadow: 0 0 34px rgba(255,26,43,.7); }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: rgba(230,0,18,.12); }
+.btn svg { width: 20px; height: 20px; fill: currentColor; }
+.meta { color: var(--muted); font-size: 14px; margin-top: 14px; }
+
+/* notices */
+.notices { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: -20px; position: relative; z-index: 2; }
+.notice {
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--red);
+  padding: 22px 24px; border-radius: var(--radius);
+}
+.notice.warn { border-left-color: #f5a400; }
+.notice h3 { font-size: 19px; }
+.notice.warn h3 { color: #f5b62a; }
+.notice p { margin: 0; color: #cfcfcf; }
+
+/* frame like the app window */
+.frame {
+  background: var(--panel); border: 1px solid #222; border-radius: 8px; position: relative;
+  box-shadow: 0 0 0 1px #000, 0 20px 50px rgba(0,0,0,.6);
+}
+.frame::before {
+  content: ""; position: absolute; inset: -1px; border-radius: 8px; pointer-events: none;
+  background: linear-gradient(135deg, var(--red) 0, transparent 18%, transparent 82%, var(--red) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; padding: 1px; opacity: .8;
+}
+
+/* features */
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.card { padding: 26px; }
+.card .ico {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid var(--red); color: var(--red-hi); margin-bottom: 14px;
+  box-shadow: 0 0 14px rgba(230,0,18,.35);
+}
+.card .ico svg { width: 22px; height: 22px; fill: currentColor; }
+.card ul { margin: 0; padding-left: 18px; color: #cfcfcf; }
+.card li { margin: 4px 0; }
+.card li::marker { color: var(--red); }
+
+/* screenshots */
+.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.tabs button {
+  background: #1a0000; color: var(--text); border: 1px solid var(--red-dk);
+  font: 700 16px Rajdhani, sans-serif; letter-spacing: .05em; text-transform: uppercase;
+  padding: 7px 20px; border-radius: 2px; cursor: pointer;
+}
+.tabs button.on { background: var(--red); border-color: var(--red); color: #fff; }
+.shot { padding: 14px; }
+.shot img { margin: 0 auto; border-radius: 4px; width: 795px; }
+.shots-cap { color: var(--muted); font-size: 14px; text-align: center; margin-top: 10px; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 26px; }
+.stat { text-align: center; padding: 24px 10px; }
+.stat b { display: block; font-size: 46px; line-height: 1; color: var(--red-hi); text-shadow: 0 0 18px rgba(230,0,18,.5); }
+.stat span { color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: .08em; }
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 14px 18px; text-align: left; border-bottom: 1px solid #1d1d1d; }
+th { font: 700 15px Rajdhani, sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }
+.dot.g { background: #2ecc71; box-shadow: 0 0 8px #2ecc71; }
+.dot.y { background: #f5a400; box-shadow: 0 0 8px #f5a400; }
+.dot.r { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+/* install */
+.steps { counter-reset: s; display: grid; gap: 16px; }
+.step { padding: 22px 24px 22px 74px; position: relative; }
+.step::after {
+  counter-increment: s; content: counter(s);
+  position: absolute; left: 22px; top: 20px; width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid var(--red); display: grid; place-items: center;
+  font: 700 18px Rajdhani, sans-serif; color: #fff; background: #1a0000;
+}
+.step p { margin: 0 0 10px; color: #cfcfcf; }
+.code {
+  position: relative; background: #050505; border: 1px solid #222; border-radius: var(--radius);
+  padding: 12px 64px 12px 14px; font: 14px/1.5 ui-monospace, "JetBrains Mono", monospace; color: #f2f2f2;
+  overflow-x: auto; white-space: pre;
+}
+.code .copy {
+  position: absolute; right: 8px; top: 8px; background: #1a0000; color: var(--text);
+  border: 1px solid var(--red-dk); border-radius: 3px; font: 600 12px Rajdhani, sans-serif;
+  padding: 3px 8px; cursor: pointer; text-transform: uppercase;
+}
+.code .copy:hover { background: var(--red); }
+
+/* feedback */
+.feedback { text-align: center; padding: 46px 26px; }
+.feedback p { color: #cfcfcf; max-width: 640px; margin: 0 auto 24px; }
+.feedback ul { text-align: left; display: inline-block; margin: 0 0 26px; color: #cfcfcf; }
+.feedback li::marker { color: var(--red); }
+
+footer { border-top: 1px solid var(--line); padding: 34px 0 44px; color: var(--muted); font-size: 13px; }
+footer .wrap { display: grid; gap: 14px; }
+footer .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+footer img { height: 26px; }
+
+@media (max-width: 860px) {
+  .nav { display: none; }
+  .lang { margin-left: auto; }
+  .notices, .grid3 { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .notices { margin-top: 0; }
+  section { padding: 60px 0; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Dragonize">
+      <img class="d" src="img/dragon.png" alt="">
+      <img class="w" src="img/wordmark.png" alt="Dragonize">
+    </a>
+    <nav class="nav">
+      <a href="#features"><span lang="en">Features</span><span lang="pt">Recursos</span></a>
+      <a href="#screens"><span lang="en">Screenshots</span><span lang="pt">Telas</span></a>
+      <a href="#devices"><span lang="en">Devices</span><span lang="pt">Dispositivos</span></a>
+      <a href="#install"><span lang="en">Install</span><span lang="pt">Instalar</span></a>
+      <a href="#feedback">Feedback</a>
+      <a href="https://github.com/vitormoreiradesenvolvedor/dragonize">GitHub</a>
+    </nav>
+    <div class="lang" role="group" aria-label="Language">
+      <button data-set="en">EN</button><button data-set="pt">PT</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <img class="logo" src="img/hero.jpg" alt="Dragonize">
+    <div class="tags">
+      <span class="tag"><span lang="en">Unofficial</span><span lang="pt">Não oficial</span></span>
+      <span class="tag"><span lang="en">Testing phase</span><span lang="pt">Fase de testes</span></span>
+      <span class="tag">Linux</span>
+    </div>
+    <p class="sub">
+      <span lang="en">Configure your Redragon gaming mouse and keyboard on Linux. Buttons, macros, DPI and RGB lighting, natively, with no Wine.</span>
+      <span lang="pt">Configure seu mouse e teclado gamer Redragon no Linux. Botões, macros, DPI e iluminação RGB, nativo, sem Wine.</span>
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/vitormoreiradesenvolvedor/dragonize/releases/download/v1.0.0/Dragonize-x86_64.AppImage">
+        <svg viewBox="0 0 24 24"><path d="M11 3h2v10.17l3.59-3.58L18 11l-6 6-6-6 1.41-1.41L11 13.17zM5 19h14v2H5z"/></svg>
+        <span lang="en">Download AppImage</span><span lang="pt">Baixar AppImage</span>
+      </a>
+      <a class="btn ghost" href="https://github.com/vitormoreiradesenvolvedor/dragonize">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+        <span lang="en">View on GitHub</span><span lang="pt">Ver no GitHub</span>
+      </a>
+    </div>
+    <div class="meta">v1.0.0 · x86_64 · 14.9 MB · <a href="https://github.com/vitormoreiradesenvolvedor/dragonize/releases"><span lang="en">all releases</span><span lang="pt">todas as versões</span></a></div>
+  </div>
+</section>
+
+<div class="wrap notices">
+  <div class="notice">
+    <h3><span lang="en">We are testing, and we need you</span><span lang="pt">Estamos testando, e precisamos de você</span></h3>
+    <p lang="en">Dragonize is being tested right now on the <b>M711 Cobra</b> and the <b>M801 Sniper</b>. Every other model was added by studying Redragon's own Windows software and still waits for testers. Tell us what works and what does not, and we fix it case by case.</p>
+    <p lang="pt">O Dragonize está sendo testado agora no <b>M711 Cobra</b> e no <b>M801 Sniper</b>. Todos os outros modelos foram adicionados estudando o próprio software de Windows da Redragon e ainda aguardam testadores. Conte o que funciona e o que não funciona, e resolvemos caso a caso.</p>
+  </div>
+  <div class="notice warn">
+    <h3><span lang="en">Use at your own risk</span><span lang="pt">Use por sua conta e risco</span></h3>
+    <p lang="en">Dragonize writes settings to your device's memory, like the official software does. Damage to the mouse or keyboard is very unlikely but not impossible. The authors are not responsible for any problem, and there is no warranty.</p>
+    <p lang="pt">O Dragonize grava configurações na memória do aparelho, como o software oficial. Danos ao mouse ou teclado (como queimar o aparelho) são muito improváveis, mas não impossíveis. Os autores não se responsabilizam por problemas, e não há garantia.</p>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span lang="en">Everything the Windows app does, <span>on Linux</span></span><span lang="pt">Tudo que o app de Windows faz, <span>no Linux</span></span></h2>
+    <p class="lead">
+      <span lang="en">Redragon only ships configuration software for Windows. Dragonize talks to the device directly over USB, keeps the familiar look, and needs no background service.</span>
+      <span lang="pt">A Redragon só oferece software de configuração para Windows. O Dragonize conversa direto com o aparelho via USB, mantém o visual conhecido e não precisa de serviço em segundo plano.</span>
+    </p>
+    <div class="grid3">
+      <div class="frame card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M13 1.07V9h7c0-4.08-3.05-7.44-7-7.93zM4 15c0 4.42 3.58 8 8 8s8-3.58 8-8v-4H4zm7-13.93C7.05 1.56 4 4.92 4 9h7z"/></svg></div>
+        <h3><span lang="en">Mice</span><span lang="pt">Mouses</span></h3>
+        <ul lang="en">
+          <li>Buttons: keys, combos, media, browser and office shortcuts</li>
+          <li>Macro editor with recording, including Ctrl, Shift, Alt and Super</li>
+          <li>DPI levels and colors, polling rate</li>
+          <li>Five on board profiles</li>
+        </ul>
+        <ul lang="pt">
+          <li>Botões: teclas, combinações, mídia, atalhos de navegador e escritório</li>
+          <li>Editor de macros com gravação, incluindo Ctrl, Shift, Alt e Super</li>
+          <li>Níveis e cores de DPI, taxa de polling</li>
+          <li>Cinco perfis no próprio mouse</li>
+        </ul>
+      </div>
+      <div class="frame card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M20 5H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zm-1 2H5v-2h2zm0-3H5V8h2zm9 7H8v-2h8zm0-4h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z"/></svg></div>
+        <h3><span lang="en">Keyboards</span><span lang="pt">Teclados</span></h3>
+        <ul lang="en">
+          <li>Key remapping on models that support it</li>
+          <li>Lighting effects, colors, brightness and speed</li>
+          <li>Visual keyboard with the real layout</li>
+        </ul>
+        <ul lang="pt">
+          <li>Remapeamento de teclas nos modelos que suportam</li>
+          <li>Efeitos de iluminação, cores, brilho e velocidade</li>
+          <li>Teclado visual com o layout real</li>
+        </ul>
+      </div>
+      <div class="frame card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm-1.06 13.54L7.4 12l1.41-1.41 2.12 2.12 4.24-4.24 1.41 1.41z"/></svg></div>
+        <h3><span lang="en">Native and simple</span><span lang="pt">Nativo e simples</span></h3>
+        <ul lang="en">
+          <li>Single AppImage, runs on any modern distro</li>
+          <li>Detects the device and picks the model by itself</li>
+          <li>English, Português, Русский, 繁體中文, 简体中文</li>
+        </ul>
+        <ul lang="pt">
+          <li>Um único AppImage, roda em qualquer distro moderna</li>
+          <li>Detecta o aparelho e escolhe o modelo sozinho</li>
+          <li>English, Português, Русский, 繁體中文, 简体中文</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screens" style="background: var(--bg2)">
+  <div class="wrap">
+    <h2><span lang="en">Take a <span>look</span></span><span lang="pt">Dê uma <span>olhada</span></span></h2>
+    <p class="lead">
+      <span lang="en">Real screens rendered by the app.</span>
+      <span lang="pt">Telas reais renderizadas pelo app.</span>
+    </p>
+    <div class="tabs" id="shotTabs">
+      <button class="on" data-img="m801-main.png" data-cap="M801 Sniper">M801 Sniper</button>
+      <button data-img="m711-main.png" data-cap="M711 Cobra">M711 Cobra</button>
+      <button data-img="m801-lighting.png" data-cap="M801 Sniper"><span lang="en">Lighting</span><span lang="pt">Iluminação</span></button>
+      <button data-img="kumara-main.png" data-cap="K552 Kumara">K552 Kumara</button>
+      <button data-img="kumara-lighting.png" data-cap="K552 Kumara"><span lang="en">Keyboard lighting</span><span lang="pt">Luz do teclado</span></button>
+    </div>
+    <div class="frame shot">
+      <img id="shotImg" src="img/m801-main.png" alt="Dragonize screenshot" width="795" height="625">
+    </div>
+    <div class="shots-cap" id="shotCap">M801 Sniper</div>
+  </div>
+</section>
+
+<section id="devices">
+  <div class="wrap">
+    <h2><span lang="en">Supported <span>devices</span></span><span lang="pt">Dispositivos <span>suportados</span></span></h2>
+    <p class="lead">
+      <span lang="en">Model data comes from Redragon's own Windows downloads. Run <code>dragonize --list-models</code> to see every model.</span>
+      <span lang="pt">Os dados de cada modelo vêm dos próprios downloads de Windows da Redragon. Rode <code>dragonize --list-models</code> para ver todos.</span>
+    </p>
+    <div class="stats">
+      <div class="frame stat"><b>374</b><span lang="en">models</span><span lang="pt">modelos</span></div>
+      <div class="frame stat"><b>171</b><span lang="en">mice</span><span lang="pt">mouses</span></div>
+      <div class="frame stat"><b>203</b><span lang="en">keyboards</span><span lang="pt">teclados</span></div>
+      <div class="frame stat"><b>5</b><span lang="en">languages</span><span lang="pt">idiomas</span></div>
+    </div>
+    <div class="frame">
+      <table>
+        <tr><th><span lang="en">Status</span><span lang="pt">Situação</span></th><th><span lang="en">Devices</span><span lang="pt">Dispositivos</span></th></tr>
+        <tr><td><span class="dot g"></span><span lang="en">Tested on hardware</span><span lang="pt">Testado em hardware</span></td><td>M801 Sniper (M801 RGB)</td></tr>
+        <tr><td><span class="dot y"></span><span lang="en">Being tested now</span><span lang="pt">Em teste agora</span></td><td>M711 Cobra</td></tr>
+        <tr><td><span class="dot r"></span><span lang="en">Implemented, waiting for testers</span><span lang="pt">Implementado, aguardando testadores</span></td><td><span lang="en">Every other listed model</span><span lang="pt">Todos os outros modelos da lista</span></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="install" style="background: var(--bg2)">
+  <div class="wrap">
+    <h2><span lang="en">Install in <span>one minute</span></span><span lang="pt">Instale em <span>um minuto</span></span></h2>
+    <p class="lead">
+      <span lang="en">No package manager and no root install. Just one file.</span>
+      <span lang="pt">Sem gerenciador de pacotes e sem instalar como root. Só um arquivo.</span>
+    </p>
+    <div class="steps">
+      <div class="frame step">
+        <p lang="en">Download <a href="https://github.com/vitormoreiradesenvolvedor/dragonize/releases/download/v1.0.0/Dragonize-x86_64.AppImage">Dragonize-x86_64.AppImage</a>.</p>
+        <p lang="pt">Baixe o <a href="https://github.com/vitormoreiradesenvolvedor/dragonize/releases/download/v1.0.0/Dragonize-x86_64.AppImage">Dragonize-x86_64.AppImage</a>.</p>
+      </div>
+      <div class="frame step">
+        <p lang="en">Make it executable and run it.</p>
+        <p lang="pt">Torne executável e rode.</p>
+        <div class="code">chmod +x Dragonize-x86_64.AppImage
+./Dragonize-x86_64.AppImage<button class="copy">copy</button></div>
+      </div>
+      <div class="frame step">
+        <p lang="en">The first time, Dragonize offers to install a small udev rule so your user can talk to the device. Your desktop asks for the admin password once. Or do it from a terminal:</p>
+        <p lang="pt">Na primeira vez, o Dragonize oferece instalar uma pequena regra udev para seu usuário falar com o aparelho. O desktop pede a senha de administrador uma vez. Ou faça pelo terminal:</p>
+        <div class="code">./Dragonize-x86_64.AppImage --install-udev-rule<button class="copy">copy</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="feedback">
+  <div class="wrap">
+    <div class="frame feedback">
+      <h2><span lang="en">Your report <span>makes it work</span></span><span lang="pt">Seu relato <span>faz funcionar</span></span></h2>
+      <p lang="en">We are in the testing phase. Every issue helps us fix a model, and telling us that something works is just as useful. Please include:</p>
+      <p lang="pt">Estamos em fase de testes. Cada issue nos ajuda a corrigir um modelo, e avisar que algo funciona é tão útil quanto. Inclua:</p>
+      <ul lang="en">
+        <li>the exact model name, from the box or under the device</li>
+        <li>your distribution and desktop</li>
+        <li>the output of <code>dragonize --diagnose</code></li>
+        <li>what you did, what happened and what you expected</li>
+      </ul>
+      <ul lang="pt">
+        <li>o nome exato do modelo, da caixa ou embaixo do aparelho</li>
+        <li>sua distribuição e desktop</li>
+        <li>a saída de <code>dragonize --diagnose</code></li>
+        <li>o que você fez, o que aconteceu e o que esperava</li>
+      </ul>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/vitormoreiradesenvolvedor/dragonize/issues/new/choose"><span lang="en">Open an issue</span><span lang="pt">Abrir uma issue</span></a>
+        <a class="btn ghost" href="https://github.com/vitormoreiradesenvolvedor/dragonize/issues"><span lang="en">See issues</span><span lang="pt">Ver issues</span></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <img src="img/dragon.png" alt=""><img src="img/wordmark.png" alt="Dragonize" style="height:16px">
+      <span>v1.0.0</span>
+      <a href="https://github.com/vitormoreiradesenvolvedor/dragonize">GitHub</a>
+    </div>
+    <p lang="en">Dragonize is an independent, unofficial project. It is not affiliated with, endorsed by or supported by Redragon or its parent company. "Redragon" and product names are trademarks of their owners and are used only to state compatibility. Product photos shown in the app belong to their owner.</p>
+    <p lang="pt">O Dragonize é um projeto independente e não oficial. Não tem vínculo com a Redragon nem com sua empresa controladora, nem é endossado ou suportado por elas. "Redragon" e os nomes dos produtos são marcas de seus donos e aparecem só para indicar compatibilidade. As fotos de produto exibidas no app pertencem ao seu dono.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function setLang(l) {
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l === 'pt' ? 'pt-BR' : 'en');
+    document.querySelectorAll('.lang button').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.set === l);
+    });
+    try { localStorage.setItem('dragonize-lang', l); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('dragonize-lang'); } catch (e) {}
+  setLang(saved || ((navigator.language || '').toLowerCase().indexOf('pt') === 0 ? 'pt' : 'en'));
+  document.querySelectorAll('.lang button').forEach(function (b) {
+    b.addEventListener('click', function () { setLang(b.dataset.set); });
+  });
+
+  var img = document.getElementById('shotImg'), cap = document.getElementById('shotCap');
+  document.querySelectorAll('#shotTabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#shotTabs button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      img.src = 'img/' + b.dataset.img;
+      cap.textContent = b.dataset.cap;
+    });
+  });
+
+  document.querySelectorAll('.code .copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.parentNode.firstChild.textContent.trim();
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = 'ok';
+        setTimeout(function () { btn.textContent = 'copy'; }, 1200);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
