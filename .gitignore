@@ -1,0 +1,10 @@
+/target/
+*.AppImage
+__pycache__/
+# local development material (not part of the project)
+/shots/
+/mechanics.json
+/tools/extract_skin.py
+/tools/re/*
+!/tools/re/rdcfg/
+!/tools/re/fleet/

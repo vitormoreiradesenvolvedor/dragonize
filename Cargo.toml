@@ -1,0 +1,23 @@
+[package]
+name = "dragonize"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+egui = "0.31"
+image = { version = "0.25", default-features = false, features = ["png", "ico", "bmp"] }
+ab_glyph = "0.2"
+clap = "4.5"
+libc = "0.2"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+strip = true
+
+[patch.crates-io]
+# macro recording needs the Super key and Ctrl+C / X / V as key events: vendor/egui-winit/PATCHED.md
+egui-winit = { path = "vendor/egui-winit" }
