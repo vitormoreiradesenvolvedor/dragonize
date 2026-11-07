@@ -143,6 +143,13 @@ To build the AppImage: `sh tools/build_appimage.sh /path/to/appimagetool`
 * [vendor/egui-winit/PATCHED.md](vendor/egui-winit/PATCHED.md): why a patched
   copy of egui-winit is bundled
 
+## License
+
+Dragonize is free software, licensed under the
+[GNU Affero General Public License v3.0](LICENSE). The bundled copy of
+egui-winit in `vendor/egui-winit/` keeps its original MIT or Apache 2.0
+license, and the bundled fonts keep theirs (see below).
+
 ## Legal
 
 Dragonize is an independent, unofficial project. It is not affiliated with,

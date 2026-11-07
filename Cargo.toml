@@ -2,6 +2,7 @@
 name = "dragonize"
 version = "1.0.0"
 edition = "2024"
+license = "AGPL-3.0-only"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }

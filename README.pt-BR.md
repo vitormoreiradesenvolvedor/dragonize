@@ -144,6 +144,13 @@ Para gerar o AppImage: `sh tools/build_appimage.sh /caminho/do/appimagetool`
 * [vendor/egui-winit/PATCHED.md](vendor/egui-winit/PATCHED.md): por que uma cópia
   modificada do egui-winit acompanha o projeto
 
+## Licença
+
+O Dragonize é software livre, licenciado sob a
+[GNU Affero General Public License v3.0](LICENSE). A cópia do egui-winit em
+`vendor/egui-winit/` mantém sua licença original MIT ou Apache 2.0, e as fontes
+incluídas mantêm as delas (veja abaixo).
+
 ## Aviso legal
 
 O Dragonize é um projeto independente e não oficial. Não tem vínculo com a
