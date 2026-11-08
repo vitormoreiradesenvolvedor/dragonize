@@ -567,6 +567,7 @@ struct Busy {
 const DRAG_SLIDER: u8 = 1;
 const DRAG_DPI: u8 = 2;
 const DRAG_PICKER: u8 = 3;
+const DRAG_MAC_SCROLL: u8 = 4;
 
 impl State {
     pub fn new(base: PathBuf, lang: Lang) -> State {
@@ -2429,14 +2430,14 @@ impl State {
         p.img("dlg_big", MAC.x, MAC.y);
         p.text_in(Rect::new(MAC.x - 20, 45, MAC.w, 28), &s.s("MACRO", 1), &T_MAC_TITLE);
         let blue = rgb(0x013c64);
-        p.cv.frame(Rect::ltrb(45, 98, 255, 528), 2, blue);
-        p.cv.frame(Rect::ltrb(271, 100, 591, 530), 2, blue);
-        p.cv.frame(Rect::ltrb(590, 100, 746, 530), 2, blue);
+        p.cv.frame(Rect::ltrb(45, 98, 240, 528), 2, blue);
+        p.cv.frame(Rect::ltrb(256, 100, 556, 530), 2, blue);
+        p.cv.frame(Rect::ltrb(555, 100, 756, 530), 2, blue);
         p.text(52, 111, &s.s("MACRO", 2), &T_MAC);
 
         // ---- macro list
         for i in 0..MAX_MACROS {
-            let r = Rect::new(59, MAC_LIST_Y + 23 * i as i32, 171, 21);
+            let r = Rect::new(57, MAC_LIST_Y + 23 * i as i32, 171, 21);
             let sel = ed.sel == Some(i) && i < ed.macros.len();
             p.img("mac_item", r.x - 2, r.y - 2);
             if sel {
@@ -2453,10 +2454,10 @@ impl State {
                 }
             }
         }
-        let new_r = Rect::new(50, 500, 97, 16);
-        let del_r = Rect::new(153, 500, 97, 16);
-        p.img("mac_btn_small", 48, 498);
-        p.img("mac_btn_small", 151, 498);
+        let new_r = Rect::new(50, 500, 91, 16);
+        let del_r = Rect::new(145, 500, 91, 16);
+        p.img_w("mac_btn_small", 48, 498, 95);
+        p.img_w("mac_btn_small", 143, 498, 95);
         p.text_in(new_r, &s.s("MACRO", 18), &T_MAC);
         p.text_in(del_r, &s.s("MACRO", 19), &T_MAC);
         self.btn_fx(p, layer, new_r, !ed.recording, false);
@@ -2469,42 +2470,66 @@ impl State {
         }
 
         // ---- editor list
-        p.text(297, 110, &s.s("MACRO", 3), &T_MAC_HEAD);
-        p.text(304, 142, &s.s("MACRO", 4), &T_MAC);
-        p.text(382, 142, &s.s("MACRO", 5), &T_MAC);
-        p.text(467, 142, &s.s("MACRO", 6), &T_MAC);
-        let list = Rect::ltrb(294, 164, 566, 430);
+        p.text(282, 110, &s.s("MACRO", 3), &T_MAC_HEAD);
+        p.text(289, 142, &s.s("MACRO", 4), &T_MAC);
+        p.text(355, 142, &s.s("MACRO", 5), &T_MAC);
+        p.text(430, 142, &s.s("MACRO", 6), &T_MAC);
+        let list = Rect::ltrb(279, 164, 531, 430);
         p.fill(list, rgb(0x060606));
         let mut opt_changed = false;
         if let Some(mi) = ed.sel {
             let n = ed.macros[mi].steps.len();
             let mut wheel_used = false;
+            // scrollbar at the right edge of the list (draggable, click on the track pages)
+            let track = Rect::new(521, 165, 10, 264);
+            let max_scroll = n.saturating_sub(MAC_VISIBLE);
+            let bar = n > MAC_VISIBLE;
+            let thumb_h = (track.h as usize * MAC_VISIBLE / n.max(1)).max(16) as i32;
+            let thumb_y = |sc: usize| track.y + ((track.h - thumb_h) as usize * sc / max_scroll.max(1)) as i32;
+            if bar && self.pressed(layer, track) && !ed.recording {
+                let ty = thumb_y(ed.scroll);
+                let m = self.inp.mouse.1;
+                if m >= ty && m < ty + thumb_h {
+                    self.drag = Some((DRAG_MAC_SCROLL, (m - ty) as usize));
+                } else {
+                    let page = MAC_VISIBLE - 1;
+                    ed.scroll = if m < ty { ed.scroll.saturating_sub(page) } else { (ed.scroll + page).min(max_scroll) };
+                }
+            }
+            if let Some((DRAG_MAC_SCROLL, grab)) = self.drag {
+                if bar && self.inp.down && active {
+                    let free = (track.h - thumb_h).max(1);
+                    let y = (self.inp.mouse.1 - grab as i32 - track.y).clamp(0, free);
+                    ed.scroll = ((y as f32 / free as f32) * max_scroll as f32).round() as usize;
+                }
+            }
+            let on_bar = bar && track.contains(self.inp.mouse);
             p.cv.set_clip(Some(list));
             for vis in 0..=MAC_VISIBLE {
                 let idx = ed.scroll + vis;
                 let Some(step) = ed.macros[mi].steps.get(idx).cloned() else { break };
-                let r = Rect::new(294, MAC_ROWS_Y + MAC_ROW_H * vis as i32, 273, MAC_ROW_H);
+                let r = Rect::new(279, MAC_ROWS_Y + MAC_ROW_H * vis as i32, 253, MAC_ROW_H);
                 if ed.row == Some(idx) {
                     p.fill(r, rgb(0xc80000));
                 }
                 match step.action {
                     Action::Down | Action::Up => {
-                        p.img(if step.action == Action::Down { "423" } else { "424" }, 299, r.y + 5);
-                        p.text_in(Rect::new(340, r.y + 3, 75, 16), &step.key, &T_MAC);
+                        p.img(if step.action == Action::Down { "423" } else { "424" }, 284, r.y + 5);
+                        p.text_in(Rect::new(313, r.y + 3, 75, 16), &step.key, &T_MAC);
                     }
                     Action::Delay => {
                         let editing = matches!(ed.edit, Some((MacField::Step(e), _)) if e == idx);
                         if editing {
                             let buf = &ed.edit.as_ref().unwrap().1;
-                            p.fill(Rect::new(424, r.y + 3, 48, 17), rgb(0x5a5a5a));
-                            p.text_in(Rect::new(424, r.y + 3, 48, 16), &format!("{buf}|"), &T_MAC);
+                            p.fill(Rect::new(387, r.y + 3, 48, 17), rgb(0x5a5a5a));
+                            p.text_in(Rect::new(387, r.y + 3, 48, 16), &format!("{buf}|"), &T_MAC);
                         } else {
-                            p.text_in(Rect::new(420, r.y + 3, 55, 16), &step.ms.to_string(), &T_MAC);
+                            p.text_in(Rect::new(383, r.y + 3, 55, 16), &step.ms.to_string(), &T_MAC);
                         }
-                        // exact delays: wheel +-1 ms (Shift 10, Ctrl 100) over a delay row
-                        let w = self.wheel(layer, r);
+                        // exact delays: Ctrl + wheel +-1 ms (Ctrl + Shift 10) over a delay row
+                        let w = if self.inp.ctrl && !on_bar { self.wheel(layer, r) } else { 0 };
                         if w != 0 {
-                            let mul = if self.inp.ctrl { 100 } else if self.inp.shift { 10 } else { 1 };
+                            let mul = if self.inp.shift { 10 } else { 1 };
                             let st = &mut ed.macros[mi].steps[idx];
                             st.ms = (st.ms as i64 + w as i64 * mul).clamp(0, 65535) as u32;
                             ed.dirty = true;
@@ -2515,34 +2540,32 @@ impl State {
                         }
                     }
                 }
-                if self.pressed(layer, r) && !ed.recording {
+                if self.pressed(layer, r) && !ed.recording && !on_bar {
                     ed.row = Some(idx);
                 }
             }
             p.cv.set_clip(None);
-            // wheel over a delay row edits it; anywhere else in the list it scrolls
+            // the wheel scrolls the list (Ctrl + wheel on a delay row edits it)
             let wl = self.wheel(layer, list);
             if wl != 0 && !wheel_used {
-                ed.scroll = (ed.scroll as i64 - wl as i64).clamp(0, n.saturating_sub(MAC_VISIBLE) as i64) as usize;
+                ed.scroll = (ed.scroll as i64 - wl as i64).clamp(0, max_scroll as i64) as usize;
             }
-            if n > MAC_VISIBLE {
-                // scroll position marker (the original list grew a scrollbar here)
-                let track = Rect::new(560, 165, 5, 264);
+            if bar {
+                // the original list grew a scrollbar here
                 p.fill(track, rgb(0x1a1a1a));
-                let h = (track.h as usize * MAC_VISIBLE / n).max(12) as i32;
-                let y = track.y + ((track.h - h) as usize * ed.scroll / (n - MAC_VISIBLE).max(1)) as i32;
-                p.fill(Rect::new(track.x, y, track.w, h), rgb(0x660000));
+                let hot = on_bar || matches!(self.drag, Some((DRAG_MAC_SCROLL, _)));
+                p.fill(Rect::new(track.x + 1, thumb_y(ed.scroll), track.w - 2, thumb_h), if hot { rgb(0xc80000) } else { rgb(0x880000) });
             }
             let m = &ed.macros[mi];
-            p.text_al(Rect::new(480, 440, 60, 16), &m.total_delay().to_string(), &T_MAC, Align::Right);
-            p.text_al(Rect::new(450, 464, 62, 16), &m.action_count().to_string(), &T_MAC, Align::Right);
+            p.text_al(Rect::new(450, 440, 60, 16), &m.total_delay().to_string(), &T_MAC, Align::Right);
+            p.text_al(Rect::new(420, 464, 62, 16), &m.action_count().to_string(), &T_MAC, Align::Right);
         }
-        p.text(375, 440, &s.s("MACRO", 7), &T_MAC);
-        p.text(566, 440, &s.s("MACRO", 8), &T_MAC);
-        p.text(375, 466, &s.s("MACRO", 9), &T_MAC);
-        p.text(554, 466, &s.s("MACRO", 10), &T_MAC);
-        let rec_r = Rect::new(378, 501, 31, 24);
-        let stop_r = Rect::new(471, 501, 31, 24);
+        p.text(345, 440, &s.s("MACRO", 7), &T_MAC);
+        p.text(518, 440, &s.s("MACRO", 8), &T_MAC);
+        p.text(345, 466, &s.s("MACRO", 9), &T_MAC);
+        p.text(506, 466, &s.s("MACRO", 10), &T_MAC);
+        let rec_r = Rect::new(353, 501, 31, 24);
+        let stop_r = Rect::new(446, 501, 31, 24);
         p.img(if ed.recording && blink() { "iconstart2" } else { "iconstart1" }, rec_r.x, rec_r.y);
         p.img(if self.hover(layer, stop_r) { "iconstop2" } else { "iconstop1" }, stop_r.x, stop_r.y);
         self.btn_fx(p, layer, rec_r, ed.sel.is_some() && !ed.recording || ed.recording && !ed.rec_inserting, ed.recording && !ed.rec_inserting);
@@ -2555,7 +2578,9 @@ impl State {
         }
 
         // ---- options
-        p.text(636, 110, &s.s("MACRO", 11), &T_MAC_OPT);
+        let t = s.s("MACRO", 11);
+        let tw = p.width(&t, &T_MAC_OPT);
+        p.text(555 + (201 - tw) / 2, 110, &t, &T_MAC_OPT);
         {
             let mi = ed.sel.unwrap_or(usize::MAX);
             let m = ed.macros.get(mi).cloned().unwrap_or_else(|| {
@@ -2567,17 +2592,22 @@ impl State {
             });
             let none = ed.sel.is_none();
             let checks: [(i32, bool, String, i32); 5] = [
-                (148, m.record_delay, s.s("MACRO", 12), 627),
-                (179, m.use_default_delay, s.s("MACRO", 13), 649),
-                (220, !none && m.mode == PlayMode::Loop, s.s("MACRO", 15), 627),
-                (259, !none && m.mode == PlayMode::WhileHeld, s.s("MACRO", 16), 627),
-                (299, m.mode == PlayMode::Toggle, s.s("MACRO", 28), 627),
+                (148, m.record_delay, s.s("MACRO", 12), 592),
+                (179, m.use_default_delay, s.s("MACRO", 13), 592),
+                (220, !none && m.mode == PlayMode::Loop, s.s("MACRO", 15), 592),
+                (259, !none && m.mode == PlayMode::WhileHeld, s.s("MACRO", 16), 592),
+                (299, m.mode == PlayMode::Toggle, s.s("MACRO", 28), 592),
             ];
             for (k, (y, on, label, lx)) in checks.iter().enumerate() {
-                p.img(if *on { "mac_check_on" } else { "mac_check_off" }, 606, *y);
-                p.text(*lx, y - 3, label, &T_MAC);
-                let lw = p.width(label, &T_MAC);
-                if !none && self.pressed(layer, Rect::new(604, y - 3, lx - 604 + lw, 18)) && !ed.recording {
+                p.img(if *on { "mac_check_on" } else { "mac_check_off" }, 571, *y);
+                // a translation still too long shrinks to stay inside the options frame
+                let mut st = T_MAC;
+                while st.size > 9.0 && *lx + p.width(label, &st) > 752 {
+                    st.size -= 0.5;
+                }
+                p.text(*lx, y - 3, label, &st);
+                let lw = p.width(label, &st);
+                if !none && self.pressed(layer, Rect::new(569, y - 3, lx - 569 + lw, 18)) && !ed.recording {
                     let mm = &mut ed.macros[mi];
                     match k {
                         0 => mm.record_delay = !mm.record_delay,
@@ -2593,7 +2623,7 @@ impl State {
                 (MacField::DefaultDelay, 196, m.default_delay, 1u32, 65535u32),
                 (MacField::Loops, 236, m.loops, 1, 255),
             ] {
-                let r = Rect::new(626, y, 35, 17);
+                let r = Rect::new(591, y, 35, 17);
                 p.img("mac_edit", r.x, r.y);
                 let editing = matches!(&ed.edit, Some((f, _)) if *f == field);
                 let shown = if editing { format!("{}|", ed.edit.as_ref().unwrap().1) } else { val.to_string() };
@@ -2610,18 +2640,18 @@ impl State {
                     opt_changed = true;
                 }
             }
-            p.text(667, 199, &s.s("MACRO", 14), &T_MAC);
+            p.text(632, 199, &s.s("MACRO", 14), &T_MAC);
         }
         if opt_changed {
             ed.dirty = true;
         }
 
         // ---- action editing
-        p.text(597, 323, &s.s("MACRO", 17), &T_MAC_HEAD);
+        p.text(565, 323, &s.s("MACRO", 17), &T_MAC_HEAD);
         let labels = [20u32, 21, 22, 23, 24, 25, 26, 27];
         for (k, key) in labels.iter().enumerate() {
-            let r = Rect::new(613, 344 + 22 * k as i32, 121, 17);
-            p.img("mac_btn", r.x - 2, r.y - 2);
+            let r = Rect::new(574, 344 + 22 * k as i32, 163, 17);
+            p.img_w("mac_btn", r.x - 2, r.y - 2, r.w + 4);
             p.text_in(r, &s.s("MACRO", *key), &T_MAC_BTN);
             let rec_here = k == 0 && ed.recording && ed.rec_inserting;
             self.btn_fx(p, layer, r, ed.sel.is_some() && !ed.recording || rec_here, rec_here);
@@ -2642,7 +2672,7 @@ impl State {
                             MenuItem::leaf(s.s("MACRO", 32), MenuAct::InsertDelay),
                         ];
                         let y = (r.y + r.h + 1).min(WIN_H - 4 - MENU_ITEM_H * items.len() as i32);
-                        self.cmds.push(Cmd::Push(Layer::Menu(MenuState { owner: MenuOwner::MacroMore, items, x: 611, y, open: None, armed: true })));
+                        self.cmds.push(Cmd::Push(Layer::Menu(MenuState { owner: MenuOwner::MacroMore, items, x: 573, y, open: None, armed: true })));
                     }
                 }
             }
@@ -2670,7 +2700,7 @@ impl State {
         } else if let Some((field, buf)) = &mut ed.edit {
             let field = *field;
             edit_digits(buf, &self.inp, &keys, 5);
-            let commit = keys.iter().any(|k| k.pressed && k.name == "Enter") || (self.inp.pressed && !self.hover(layer, Rect::ltrb(424, 164, 566, 430)) && !matches!(field, MacField::DefaultDelay | MacField::Loops));
+            let commit = keys.iter().any(|k| k.pressed && k.name == "Enter") || (self.inp.pressed && !self.hover(layer, Rect::ltrb(383, 164, 531, 430)) && !matches!(field, MacField::DefaultDelay | MacField::Loops));
             let cancel = keys.iter().any(|k| k.pressed && k.name == "Escape");
             if commit || cancel {
                 if commit {
@@ -2852,7 +2882,7 @@ impl State {
             "firekey" => self.layers.push(Layer::Dialog(Dialog::FireKey { button: 3, fk: FireKey::default(), focus: 0, times: "3".into(), delay: "10".into() })),
             "assignkey" => self.layers.push(Layer::Dialog(Dialog::AssignKey { button: 5, key: String::new() })),
             "combokey" => self.layers.push(Layer::Dialog(Dialog::Combo { button: 5, key: String::new() })),
-            "macro" | "macro1" | "macro_rec" | "macro_live" | "newmacro" => {
+            "macro" | "macro1" | "macro_rec" | "macro_live" | "macro_long" | "newmacro" => {
                 self.open_macro_manager(None);
                 if name != "macro" {
                     if let Some(Layer::Macro(ed)) = self.layers.last_mut() {
@@ -2867,6 +2897,16 @@ impl State {
                                 }
                             }
                             ed.row = Some(m.steps.len() - 1);
+                        }
+                        if name == "macro_long" {
+                            // more rows than fit: scrollbar, scrolled to the middle
+                            for i in 0..15 {
+                                let k = ((b'A' + i) as char).to_string();
+                                m.steps.push(MacroStep { action: Action::Down, key: k.clone(), ms: 0 });
+                                m.steps.push(MacroStep { action: Action::Delay, key: String::new(), ms: 10 });
+                                m.steps.push(MacroStep { action: Action::Up, key: k, ms: 0 });
+                            }
+                            ed.scroll = 12;
                         }
                         if name == "macro_live" {
                             // recording in progress: Ctrl+C, then Super held
@@ -3339,6 +3379,35 @@ mod tests {
     }
 
     #[test]
+    fn macro_list_scrollbar_and_wheel() {
+        let mut h = H::new("macscroll");
+        let mut m = Macro::new("Long");
+        for i in 0..40 {
+            m.steps.push(MacroStep { action: Action::Delay, key: String::new(), ms: 10 + i });
+        }
+        h.st.macros = vec![m];
+        h.st.open_macro_manager(None);
+        let scroll = |h: &H| match h.st.layers.last() { Some(Layer::Macro(ed)) => ed.scroll, _ => panic!() };
+        let delay0 = |h: &H| match h.st.layers.last() { Some(Layer::Macro(ed)) => ed.macros[0].steps[0].ms, _ => panic!() };
+        // plain wheel over a delay row scrolls, it does not edit the delay
+        h.wheel(410, MAC_ROWS_Y + 10, -3, false);
+        assert_eq!((scroll(&h), delay0(&h)), (3, 10));
+        h.wheel(410, MAC_ROWS_Y + 10, 5, false);
+        assert_eq!(scroll(&h), 0);
+        // click on the track below the thumb pages down
+        h.click(525, 420);
+        assert_eq!(scroll(&h), MAC_VISIBLE - 1);
+        // drag the thumb to the bottom of the track
+        h.frame(h.at(525, 200));
+        let ty = 165 + ((264 - (264 * MAC_VISIBLE / 40) as i32) as usize * scroll(&h) / (40 - MAC_VISIBLE)) as i32;
+        h.frame(Input { pressed: true, down: true, ..h.at(525, ty + 2) });
+        h.frame(Input { down: true, ..h.at(525, 600) });
+        h.frame(Input { released: true, ..h.at(525, 600) });
+        assert_eq!(scroll(&h), 40 - MAC_VISIBLE);
+        assert_eq!(delay0(&h), 10);
+    }
+
+    #[test]
     fn macro_create_record_edit_save() {
         let mut h = H::new("macro");
         h.st.open_macro_manager(Some(4));
@@ -3347,11 +3416,11 @@ mod tests {
         h.tap("Enter");
         let Some(Layer::Macro(ed)) = h.st.layers.last() else { panic!("manager closed") };
         assert_eq!(ed.macros.len(), 1);
-        h.click(393, 513); // record
+        h.click(368, 513); // record
         h.key("A", true);
         std::thread::sleep(std::time::Duration::from_millis(30));
         h.key("A", false);
-        h.click(486, 513); // stop
+        h.click(461, 513); // stop
         let Some(Layer::Macro(ed)) = h.st.layers.last() else { panic!() };
         let steps = &ed.macros[0].steps;
         assert_eq!(steps.len(), 3, "{steps:?}");
@@ -3359,11 +3428,11 @@ mod tests {
         assert_eq!(steps[1].action, Action::Delay);
         assert!(steps[1].ms >= 20);
         // exact delay: double-click the delay row and type it
-        h.double(450, MAC_ROWS_Y + MAC_ROW_H + 10);
+        h.double(410, MAC_ROWS_Y + MAC_ROW_H + 10);
         h.text("25");
         h.tap("Enter");
-        // wheel nudges it by 1 ms
-        h.wheel(450, MAC_ROWS_Y + MAC_ROW_H + 10, 2, false);
+        // Ctrl + wheel nudges it by 1 ms
+        h.frame(Input { wheel: 2, ctrl: true, ..h.at(410, MAC_ROWS_Y + MAC_ROW_H + 10) });
         // more... -> middle click inserted after the selected row
         h.click(673, 506);
         let (mx, my) = match h.st.layers.last() { Some(Layer::Menu(m)) => (m.x, m.y), _ => panic!() };
@@ -3374,7 +3443,7 @@ mod tests {
         assert_eq!(m.steps[1].ms, 27);
         assert_eq!(m.action_count(), 4);
         // loop count: wheel on the edit box
-        h.wheel(640, 244, 4, false);
+        h.wheel(605, 244, 4, false);
         h.click(581, 550); // OK
         assert!(h.st.layers.is_empty());
         assert_eq!(h.st.macros[0].loops, 5);

@@ -165,9 +165,12 @@ options record delays, default delay (ms), loop count 1-255, repeat while
 held, repeat until pressed again; record key (insert), delete, move up/down,
 copy, cut, paste, more... (left/right/middle click); load/save `.MSMACRO`.
 Port additions: "insert delay"; double-click a delay row to type exact ms;
-wheel over a delay row = +-1 ms (Shift 10, Ctrl 100); wheel on the option
-boxes; keyboard shortcuts (Del, Ctrl+C/X/V, Ctrl+Up/Down); scrolling for long
-macros; the name list and the totals update (the original did not repaint
+Ctrl + wheel over a delay row = +-1 ms (Ctrl + Shift 10; the plain wheel
+scrolls the list); wheel on the option boxes; keyboard shortcuts (Del,
+Ctrl+C/X/V, Ctrl+Up/Down); a scrollbar for long macros (drag the thumb, click
+the track to page; scene `macro_long`); columns rebalanced so the options
+frame is wider (555-756) and translations fit at full size (a still longer one
+shrinks); the name list and the totals update (the original did not repaint
 them until reopened).
 Recording happens while the window has focus (Wayland gives no global key hook).
 

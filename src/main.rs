@@ -228,7 +228,7 @@ fn main() {
         .version(APP_VERSION)
         .about("Dragonize: unofficial configuration tool for the M801-RGB and other Redragon gaming mice and keyboards (see --list-models)")
         .arg(clap::Arg::new("screenshot").long("screenshot").value_name("FILE.PNG").help("Render a scene to a PNG and exit (no window)"))
-        .arg(clap::Arg::new("scene").long("scene").value_name("NAME").default_value("main").help("Scene for --screenshot: main dpi light info led0..led7 btnmenu sub_basic firekey assignkey combokey macro macro1 macro_rec newmacro perm select nodevice; keyboards: main light info kled0.. keymenu keymedia keyset assignkey"))
+        .arg(clap::Arg::new("scene").long("scene").value_name("NAME").default_value("main").help("Scene for --screenshot: main dpi light info led0..led7 btnmenu sub_basic firekey assignkey combokey macro macro1 macro_rec macro_long newmacro perm select nodevice; keyboards: main light info kled0.. keymenu keymedia keyset assignkey"))
         .arg(clap::Arg::new("lang").long("lang").value_name("tc|sc|pt|en|ru").help("UI language (default: saved choice, then M801_LANG, then Traditional Chinese like the original)"))
         .arg(clap::Arg::new("bundled-fonts").long("bundled-fonts").action(clap::ArgAction::SetTrue).help("Ignore system Microsoft JhengHei and use the bundled fonts"))
         .arg(clap::Arg::new("device-dump").long("device-dump").action(clap::ArgAction::SetTrue).help("Print the configuration stored on the connected mouse and exit"))
