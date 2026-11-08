@@ -264,6 +264,57 @@ fields; buttons produced BTN_EXTRA, BTN_SIDE, keys, Ctrl+C; DPI cycle; polling
 measured 1.00 / 2.00 / 8.00 ms for 1000 / 500 / 125 Hz after re-enumeration;
 F13 macro timing confirmed 10 ms delay units.
 
+## Profile button, background mode, pointer settings (2026-11-07)
+
+Profile button: the firmware sends input report `08 01 PP` (PP = 0-based
+profile) on the vendor hidraw interface and updates 0x2c; hid.exe
+(FUN_00411ae0) turns it into WM 0x1515 wParam 9 for ldcfg (UI refresh only) and
+applies the profile's pointer settings (FUN_00410010). Other reports there:
+`08 02` DPI stage, `08 06` polling, `08 09`.
+
+On the M801-RGB / M912-RGB (rev 02xx) the sensor never follows the switch:
+0x2c from the button, or 0x2c + commit 01 written by the host (in or out of a
+session, as ldcfg/RDCfg do), leave the DPI levels of block 1 in force. Measured
+on the device. So `Model::single_live_profile` makes every write copy the
+selected profile into block 1 (`device::live_image`; 0x2c still records which
+profile it is, and the app keeps the UI's profile 1 instead of that copy), then
+re-enumerate. `dragonize --daemon` (daemon.rs) listens for `08 01 PP` on every
+Holtek mouse, waits 400 ms for further presses, and runs the Apply path
+(`device::apply_profiles`, skipped when the mouse already holds that image)
+with the profiles saved in the configuration directory (a model without saved
+profiles is never written). Verified 2026-11-07: one press = profile 2 in block
+1, 0x2c = 1, DPI changed. USBDEVFS_RESET keeps the same hidraw/event nodes
+(usbhid pre/post reset), so the daemon touches `$XDG_RUNTIME_DIR/dragonize-applied`
+and an open window reads the mouse again when it changes. Window and daemon
+serialize their feature-report traffic with flock on
+`$XDG_RUNTIME_DIR/dragonize-device.lock` (`device::exclusive`).
+
+The window starts the daemon (detached, own session; through `$APPIMAGE` so it
+does not depend on the window's AppImage mount) and keeps
+`~/.config/autostart/dragonize-daemon.desktop` pointing at the current program;
+`--autostart off` removes it and leaves a marker (`autostart-off` in the config
+directory). Single instance: flock on `$XDG_RUNTIME_DIR/dragonize-daemon.lock`.
+Log: `$XDG_RUNTIME_DIR/dragonize-daemon.log`; `--diagnose` prints the status.
+
+Pointer settings (pointer.rs), per hid.exe FUN_00410010: acceleration 1 =
+SPI_SETMOUSE off, 2-4 = on with thresholds (8), (4), (2, 8); pointer speed =
+SPI_SETMOUSESPEED 1-20; SetDoubleClickTime(900 - 70 * value). The wheel slider
+is never applied by the original. Dragonize applies them to this mouse's evdev
+nodes only (found under its USB sysfs device, REL_X capability): KWin D-Bus
+`org.kde.KWin.InputDevice` on `/org/kde/KWin/InputDevice/eventN`
+(pointerAcceleration = (speed - 10) / 10, ProfileFlat for acceleration 1,
+Adaptive otherwise, scrollFactor = (wheel + 2) / 3; KWin saves them), or
+xinput libinput properties on X11 (no wheel). GNOME has no per-device setting;
+double-click time is desktop-wide; both are left alone. Applied by Apply for the
+selected profile, by the daemon on the profile button and when a mouse with
+saved profiles is plugged in.
+
+Hot plug (ui.rs `poll_hotplug`): the live window rescans every second. A newly
+plugged device becomes the one shown (model and UI switch), an unplugged one
+hands over to what is left (several: the selection dialog), nothing left shows
+the fallback screen (scene `nodevice`, strings `[NODEV]`) with "Edit profiles
+offline". It waits while a dialog or editor is open.
+
 ## Access on other machines
 
 `/dev/hidraw*` and the usbfs node are root-only on most distributions (the

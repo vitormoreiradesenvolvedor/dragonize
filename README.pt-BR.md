@@ -41,7 +41,7 @@
 
 A Redragon só disponibiliza software de configuração para Windows. O Dragonize é
 um aplicativo nativo para Linux que conversa direto com o dispositivo via USB
-(hidraw), sem Wine e sem serviço em segundo plano.
+(hidraw), sem Wine.
 
 **Mouses**
 * Função de cada botão: cliques, teclas, combinações, teclas de mídia, atalhos
@@ -50,6 +50,11 @@ um aplicativo nativo para Linux que conversa direto com o dispositivo via USB
   Super) e atrasos
 * Níveis e cores de DPI, taxa de polling, efeitos de iluminação
 * Cinco perfis no próprio mouse, salvos e carregados de arquivos
+* O botão de perfil embaixo do mouse troca de perfil como no Windows: um pequeno
+  modo em segundo plano percebe o toque e aplica aquele perfil
+* Velocidade do ponteiro, aceleração e velocidade da rolagem por perfil,
+  aplicadas só neste mouse (KDE Plasma e X11; a velocidade do clique duplo é uma
+  configuração geral do desktop e não é alterada)
 
 **Teclados**
 * Remapeamento de teclas (nos modelos que suportam)
@@ -59,6 +64,8 @@ um aplicativo nativo para Linux que conversa direto com o dispositivo via USB
 * Interface em English, Português, Русский, 繁體中文 e 简体中文
 * Detecta o dispositivo conectado e escolhe o modelo certo sozinho; quando
   vários modelos usam o mesmo id USB, ele deixa você escolher
+* Acompanha dispositivos sendo conectados e desconectados com o app aberto, e
+  mostra uma tela de espera quando nenhum dispositivo compatível está conectado
 
 ## Dispositivos suportados
 
@@ -93,6 +100,11 @@ lista, abra uma issue.
    ./Dragonize-x86_64.AppImage --install-udev-rule
    ```
 
+Abrir o Dragonize também inicia o modo em segundo plano e o adiciona aos
+programas de login (`~/.config/autostart/dragonize-daemon.desktop`). Ele só lê o
+mouse até você apertar o botão de perfil, e usa apenas os perfis que você salvou
+no Dragonize. Para não iniciar no login: `./Dragonize-x86_64.AppImage --autostart off`.
+
 Algo não funciona? Rode `./Dragonize-x86_64.AppImage --diagnose` e cole a saída
 numa issue.
 
@@ -123,6 +135,8 @@ Opções úteis (`dragonize --help` mostra todas):
 | Opção | O que faz |
 |---|---|
 | `--diagnose` | Explica por que o dispositivo pode ou não ser usado |
+| `--daemon` | Roda o modo em segundo plano (botão de perfil, ponteiro) |
+| `--autostart on\|off` | Inicia o modo em segundo plano no login, ou deixa de iniciar |
 | `--list-models` | Lista os modelos suportados |
 | `--device-dump` | Mostra a configuração gravada no mouse conectado |
 | `--no-device --model CHAVE` | Abre o editor de um modelo sem o aparelho |

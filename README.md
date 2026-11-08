@@ -40,7 +40,7 @@
 
 Redragon only ships configuration software for Windows. Dragonize is a native
 Linux application that talks to the device directly over USB (hidraw), with no
-Wine and no background service.
+Wine.
 
 **Mice**
 * Button assignment: clicks, keys, key combos, media keys, office and browser
@@ -49,6 +49,11 @@ Wine and no background service.
   delays
 * DPI levels and colors, polling rate, lighting effects
 * Five on board profiles, saved and loaded from files
+* The profile button under the mouse switches profiles like on Windows: a small
+  background mode notices the press and applies that profile
+* Pointer speed, acceleration and wheel speed per profile, applied to this mouse
+  only (KDE Plasma and X11; double click speed is a desktop wide setting and is
+  not changed)
 
 **Keyboards**
 * Key remapping (on models that support it)
@@ -58,6 +63,8 @@ Wine and no background service.
 * Interface in English, Português, Русский, 繁體中文 and 简体中文
 * Detects the connected device and picks the right model automatically; when
   several models share the same USB id, it lets you choose
+* Follows devices being plugged in and out while it is open, and shows a waiting
+  screen when no supported device is connected
 
 ## Supported devices
 
@@ -92,6 +99,11 @@ listed at all, please open an issue.
    ./Dragonize-x86_64.AppImage --install-udev-rule
    ```
 
+Opening Dragonize also starts its background mode and adds it to your login
+programs (`~/.config/autostart/dragonize-daemon.desktop`). It only reads the
+mouse until you press its profile button, and it uses only the profiles you saved
+in Dragonize. To turn the start at login off: `./Dragonize-x86_64.AppImage --autostart off`.
+
 Something not working? Run `./Dragonize-x86_64.AppImage --diagnose` and paste
 the output into an issue.
 
@@ -122,6 +134,8 @@ Useful options (`dragonize --help` lists all of them):
 | Option | What it does |
 |---|---|
 | `--diagnose` | Explains why the device can or cannot be used |
+| `--daemon` | Runs the background mode (profile button, pointer settings) |
+| `--autostart on\|off` | Starts the background mode at login, or stops doing so |
 | `--list-models` | Lists the supported models |
 | `--device-dump` | Prints the configuration stored on the connected mouse |
 | `--no-device --model KEY` | Opens the editor for a model without a device |

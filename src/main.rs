@@ -13,6 +13,8 @@ mod dc;
 mod pxi;
 mod mo;
 mod xy;
+mod daemon;
+mod pointer;
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -21,7 +23,7 @@ use gfx::{Canvas, Fonts};
 use ui::{Input, KeyEv, Lang, Request, Res, State, WIN_H, WIN_W};
 
 const APP_NAME: &str = "Dragonize";
-const APP_VERSION: &str = "1.0.0";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const TAHOMA: &[u8] = include_bytes!("../assets/fonts/tahoma.ttf");
 const TAHOMA_BOLD: &[u8] = include_bytes!("../assets/fonts/tahomabd.ttf");
@@ -226,7 +228,7 @@ fn main() {
         .version(APP_VERSION)
         .about("Dragonize: unofficial configuration tool for the M801-RGB and other Redragon gaming mice and keyboards (see --list-models)")
         .arg(clap::Arg::new("screenshot").long("screenshot").value_name("FILE.PNG").help("Render a scene to a PNG and exit (no window)"))
-        .arg(clap::Arg::new("scene").long("scene").value_name("NAME").default_value("main").help("Scene for --screenshot: main dpi light info led0..led7 btnmenu sub_basic firekey assignkey combokey macro macro1 macro_rec newmacro; keyboards: main light info kled0.. keymenu keymedia keyset assignkey"))
+        .arg(clap::Arg::new("scene").long("scene").value_name("NAME").default_value("main").help("Scene for --screenshot: main dpi light info led0..led7 btnmenu sub_basic firekey assignkey combokey macro macro1 macro_rec newmacro perm select nodevice; keyboards: main light info kled0.. keymenu keymedia keyset assignkey"))
         .arg(clap::Arg::new("lang").long("lang").value_name("tc|sc|pt|en|ru").help("UI language (default: saved choice, then M801_LANG, then Traditional Chinese like the original)"))
         .arg(clap::Arg::new("bundled-fonts").long("bundled-fonts").action(clap::ArgAction::SetTrue).help("Ignore system Microsoft JhengHei and use the bundled fonts"))
         .arg(clap::Arg::new("device-dump").long("device-dump").action(clap::ArgAction::SetTrue).help("Print the configuration stored on the connected mouse and exit"))
@@ -239,6 +241,8 @@ fn main() {
         .arg(clap::Arg::new("config-dir").long("config-dir").value_name("DIR").help("Profile directory (default: ~/.config/m801-rgb)"))
         .arg(clap::Arg::new("model").long("model").value_name("KEY").help("Model to show without a mouse (screenshots, --no-device); see --list-models"))
         .arg(clap::Arg::new("usb").long("usb").value_name("PORT").help("With several mice plugged, the one on this USB port (as --diagnose prints it)"))
+        .arg(clap::Arg::new("daemon").long("daemon").action(clap::ArgAction::SetTrue).help("Background mode: follow the mouse's profile button and apply each profile's pointer settings (started by the app and at login)"))
+        .arg(clap::Arg::new("autostart").long("autostart").value_name("on|off").value_parser(["on", "off"]).help("Start the background mode at login (default on)"))
         .arg(clap::Arg::new("list-models").long("list-models").action(clap::ArgAction::SetTrue).help("List the supported models and exit"))
         .get_matches();
 
@@ -270,8 +274,23 @@ fn main() {
         Ok(d)
     };
 
+    if args.get_flag("daemon") {
+        daemon::run();
+        return;
+    }
+    if let Some(v) = args.get_one::<String>("autostart") {
+        match daemon::set_autostart(v == "on") {
+            Ok(()) => println!("background mode at login: {v}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if args.get_flag("diagnose") {
         print!("{}", device::diagnose());
+        println!("{}", daemon::status());
         return;
     }
     if args.get_flag("install-udev-rule") {
@@ -427,7 +446,10 @@ fn main() {
         if let Some(f) = device::scan().iter().find(|f| Some(&f.usb_name()) == args.get_one::<String>("usb")) {
             state.choose(f);
         }
+        state.enable_hotplug();
         state.attach_device();
+        daemon::sync_autostart();
+        daemon::ensure_running();
     }
     // one canvas pixel per physical pixel, or an integer multiple on HiDPI
     let icon = image::load_from_memory(include_bytes!("../assets/brand/icon.png")).ok().map(|i| {

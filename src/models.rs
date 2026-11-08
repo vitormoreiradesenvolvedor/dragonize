@@ -175,6 +175,11 @@ impl Model {
         self.key == M801
     }
 
+    /// RDCfg / M801 protocol, either write form.
+    pub fn is_holtek(&self) -> bool {
+        matches!(self.proto, Proto::Holtek | Proto::HoltekBulk)
+    }
+
     pub fn is_bulk(&self) -> bool {
         self.proto == Proto::HoltekBulk
     }
@@ -210,6 +215,14 @@ impl Model {
 
     pub fn is_px(&self) -> bool {
         self.proto == Proto::Pixart
+    }
+
+    /// Firmware that always runs profile 1's block: 0x2c (written by both vendor
+    /// drivers) and the mouse's own profile button leave DPI on profile 1
+    /// (M801-RGB / M912-RGB rev 02xx, tested on the device 2026-11-07). The
+    /// selected profile is mirrored into block 1; 0x2c still records which one.
+    pub fn single_live_profile(&self) -> bool {
+        self.key == "m912-rgb"
     }
 
     /// Mice whose driver only sends: the app keeps the UI's profiles, nothing is read back.

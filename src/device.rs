@@ -1059,6 +1059,84 @@ pub fn profile_to_device(p: &Profile, current: &DeviceProfile) -> DeviceProfile 
     d
 }
 
+/// Waits for, then holds while the returned file stays open, the right to talk to
+/// the devices: the window and the background mode must not interleave their
+/// request/reply feature reports. None when the lock file can not be created.
+pub fn exclusive() -> Option<File> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let f = OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("dragonize-device.lock")).ok()?;
+    unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) };
+    Some(f)
+}
+
+/// Touched by the background mode after it wrote a profile: an open window reads
+/// the mouse again (the re-enumeration keeps the same hidraw node).
+pub fn applied_mark() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("dragonize-applied")
+}
+
+/// What the device holds after `new` is written: on single-live-profile firmware
+/// block 1 carries a copy of the selected profile.
+pub fn live_image(model: &Model, new: &DeviceConfig) -> DeviceConfig {
+    let mut new = new.clone();
+    if model.single_live_profile() && new.active != 0 {
+        new.profiles[0] = new.profiles[new.active as usize].clone();
+    }
+    new
+}
+
+/// The Apply path, also run by the background mode when the mouse's profile
+/// button is pressed: (re)open + read, write only the changed fields (verified),
+/// re-enumerate the mouse, reopen it. `phase` reports progress (0 open, 1 write,
+/// 2 reconnect). With `skip_same` nothing is written or reset when the mouse
+/// already holds this configuration.
+pub fn apply_profiles(
+    usb: Option<&str>,
+    profiles: &[Profile],
+    macros: &mut Vec<Macro>,
+    active: u8,
+    skip_same: bool,
+    phase: &dyn Fn(u8),
+) -> Result<(Device, DeviceConfig), String> {
+    let reopen = || -> Result<(Device, DeviceConfig), String> {
+        let mut last = String::from("mouse not connected");
+        for _ in 0..60 {
+            match Device::open_first(usb).and_then(|d| read_config(&d).map(|c| (d, c))) {
+                Ok(dc) => return Ok(dc),
+                Err(e) => last = e.to_string(),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Err(last)
+    };
+    let _excl = exclusive();
+    phase(0);
+    let (d, current) = reopen()?;
+    phase(1);
+    let images = macros_to_device(macros, &current.macros);
+    let new = DeviceConfig {
+        active,
+        profiles: (0..5).map(|i| profile_to_device_with(&profiles[i], &current.profiles[i], macros)).collect(),
+        macros: images,
+    };
+    if skip_same && !d.found.model.write_only() && live_image(d.found.model, &new) == current {
+        return Ok((d, current));
+    }
+    write_config(&d, &new, &current).map_err(|e| e.to_string())?;
+    phase(2);
+    let found = d.found.clone();
+    drop(d);
+    if found.model.write_only() {
+        return Ok((Device::open(&found).map_err(|e| e.to_string())?, current));
+    }
+    // BYDUI mice answer every command: no re-enumeration needed
+    if !found.model.is_bd() {
+        usb_reset(&found).map_err(|e| e.to_string())?;
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    reopen()
+}
+
 /// Writes only what differs from `current`, then commits and reads back.
 pub fn write_config(d: &Device, new: &DeviceConfig, current: &DeviceConfig) -> std::io::Result<DeviceConfig> {
     let model = d.found.model;
@@ -1086,7 +1164,7 @@ pub fn write_config(d: &Device, new: &DeviceConfig, current: &DeviceConfig) -> s
     if model.is_px() {
         return crate::pxi::write_config(d, new, current);
     }
-    let mut new = new.clone();
+    let mut new = live_image(model, new);
     if model.is_bulk() {
         for n in new.profiles.iter_mut() {
             n.image = n.bulk_image(model);

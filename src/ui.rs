@@ -534,6 +534,20 @@ pub struct State {
     kprof: Option<crate::kbd::KbProfile>,
     ksaved: Option<crate::kbd::KbProfile>,
     kdev: Option<(crate::device::Device, crate::kbd::KbConfig)>,
+    /// Live window: follows devices being plugged in and out (None for screenshots and --no-device).
+    hotplug: Option<Hotplug>,
+}
+
+struct Hotplug {
+    last: Instant,
+    /// (USB port, hidraw node) of every supported device at the last scan
+    seen: Vec<(String, PathBuf)>,
+    /// No supported device plugged: the fallback screen is shown...
+    none: bool,
+    /// ...unless the user chose to edit the profiles without a device.
+    offline: bool,
+    /// Last profile write of the background mode (daemon.rs).
+    applied: Option<std::time::SystemTime>,
 }
 
 /// Progress messages of a background Apply.
@@ -584,6 +598,7 @@ impl State {
             kprof: None,
             ksaved: None,
             kdev: None,
+            hotplug: None,
         };
         st.load_kbd();
         st
@@ -646,13 +661,14 @@ impl State {
         let Some(f) = pick.cloned() else {
             if found.len() > 1 {
                 self.open_selector(found);
-            } else {
+            } else if self.hotplug.is_none() {
                 self.flash(format!("{}: not connected", crate::models::current().name));
             }
             return;
         };
         self.target = Some(f.usb_name());
         self.set_model(f.model);
+        let _excl = exclusive();
         if let Some(kb) = f.model.kb {
             let held = self.kprof.as_ref().map(|p| p.cfg.clone()).filter(|_| kb.write_only());
             let read = |d: &Device| held.clone().map_or_else(|| crate::kbd::read_config(d, kb), Ok);
@@ -675,6 +691,10 @@ impl State {
                 if !f.model.write_only() {
                     self.macros = macros_from_device(&cfg, &self.macros);
                     for (i, dp) in cfg.profiles.iter().enumerate() {
+                        // block 1 holds a copy of the selected profile: profile 1 stays as saved
+                        if i == 0 && cfg.active != 0 && f.model.single_live_profile() {
+                            continue;
+                        }
                         apply_to_profile_with(dp, &mut self.profiles[i], &self.macros);
                     }
                     self.cur = (cfg.active as usize).min(4);
@@ -685,6 +705,63 @@ impl State {
             }
             Err(e) => self.flash(format!("{}: {e}", f.model.name)),
         }
+    }
+
+    /// Starts following plugged and unplugged devices (live window only).
+    pub fn enable_hotplug(&mut self) {
+        let found = crate::device::scan();
+        let applied = crate::daemon::applied_at();
+        self.hotplug = Some(Hotplug { last: Instant::now(), seen: plug_sig(&found), none: found.is_empty(), offline: false, applied });
+    }
+
+    /// Every second: a newly plugged device becomes the one being configured, an
+    /// unplugged one hands over to what is left (or the fallback screen), and a
+    /// re-enumerated one (Apply from the background mode) is read again.
+    fn poll_hotplug(&mut self) {
+        use crate::device::*;
+        let Some(h) = &mut self.hotplug else { return };
+        if self.busy.is_some() || h.last.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        h.last = Instant::now();
+        let found = scan();
+        let sig = plug_sig(&found);
+        let applied = crate::daemon::applied_at();
+        // an open dialog or editor may refer to the current model: wait until it closes
+        if (sig == h.seen && applied == h.applied) || self.layers.iter().any(|l| !matches!(l, Layer::Dialog(Dialog::SelectDevice { .. }))) {
+            return;
+        }
+        let reread = applied != h.applied;
+        h.applied = applied;
+        let old = std::mem::replace(&mut h.seen, sig);
+        h.none = found.is_empty();
+        if h.none {
+            h.offline = false;
+        }
+        self.layers.clear();
+        if found.is_empty() {
+            self.device = None;
+            self.kdev = None;
+            return;
+        }
+        let open = self.device.as_ref().map(|(d, _)| d.path.clone()).or_else(|| self.kdev.as_ref().map(|(d, _)| d.path.clone()));
+        if let Some(f) = found.iter().find(|f| !old.iter().any(|(u, _)| *u == f.usb_name())) {
+            self.target = Some(f.usb_name());
+        } else if let Some(t) = &self.target {
+            if !found.iter().any(|f| &f.usb_name() == t) {
+                self.target = None;
+            } else if !reread && open.is_some_and(|p| found.iter().any(|f| f.hidraw == p)) {
+                return;
+            }
+        }
+        self.device = None;
+        self.kdev = None;
+        self.attach_device();
+    }
+
+    /// Hot-plug mode with nothing plugged: the fallback screen replaces the editor.
+    fn no_device(&self) -> bool {
+        self.hotplug.as_ref().is_some_and(|h| h.none && !h.offline)
     }
 
     /// Picks the mouse to configure (before `attach_device`).
@@ -767,44 +844,15 @@ impl State {
         let active = self.cur as u8;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let reopen = || -> Result<(Device, DeviceConfig), String> {
-                let mut last = String::from("mouse not connected");
-                for _ in 0..60 {
-                    match Device::open_first(usb.as_deref()).and_then(|d| read_config(&d).map(|c| (d, c))) {
-                        Ok(dc) => return Ok(dc),
-                        Err(e) => last = e.to_string(),
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                Err(last)
+            // fresh read: survives unplug/replug and a mouse attached after start
+            drop(held);
+            let phase = |p| {
+                let _ = tx.send(ApplyMsg::Phase(p));
             };
-            let r = (|| {
-                let _ = tx.send(ApplyMsg::Phase(0));
-                // fresh read: survives unplug/replug and a mouse attached after start
-                drop(held);
-                let (d, current) = reopen()?;
-                let _ = tx.send(ApplyMsg::Phase(1));
-                let images = macros_to_device(&mut macros, &current.macros);
-                let new = DeviceConfig {
-                    active,
-                    profiles: (0..5).map(|i| profile_to_device_with(&profiles[i], &current.profiles[i], &macros)).collect(),
-                    macros: images,
-                };
-                write_config(&d, &new, &current).map_err(|e| e.to_string())?;
-                let _ = tx.send(ApplyMsg::Phase(2));
-                let found = d.found.clone();
-                drop(d);
-                if found.model.write_only() {
-                    return Ok((Device::open(&found).map_err(|e| e.to_string())?, current, macros));
-                }
-                // BYDUI mice answer every command: no re-enumeration needed
-                if !found.model.is_bd() {
-                    usb_reset(&found).map_err(|e| e.to_string())?;
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                }
-                let (d, c) = reopen()?;
-                Ok((d, c, macros))
-            })();
+            let r = apply_profiles(usb.as_deref(), &profiles, &mut macros, active, false, &phase).map(|(d, c)| {
+                crate::pointer::apply(&d.found, &profiles[active as usize]);
+                (d, c, macros)
+            });
             let _ = tx.send(ApplyMsg::Done(r));
         });
         Some(rx)
@@ -1017,9 +1065,14 @@ impl State {
             self.press_at = Some(inp.mouse);
         }
         self.inp = inp;
+        self.poll_hotplug();
         cv.clear();
         let mut p = P { r, cv };
-        self.draw_main(&mut p);
+        if self.no_device() {
+            self.draw_no_device(&mut p);
+        } else {
+            self.draw_main(&mut p);
+        }
         let n = self.layers.len();
         for i in 0..n {
             // temporarily take the layer out so drawing can borrow self mutably
@@ -1924,6 +1977,45 @@ impl State {
         }
     }
 
+    /// Fallback screen: no supported device is plugged. Plugging one in opens it
+    /// (poll_hotplug); the profiles can still be edited offline.
+    fn draw_no_device(&mut self, p: &mut P) {
+        let s = &p.r.strs;
+        let (title, l1, l2, wait, offline) = (s.s("NODEV", 1), s.s("NODEV", 2), s.s("NODEV", 3), s.s("NODEV", 4), s.s("NODEV", 5));
+        p.img("cfgMainback_plain", 0, 0);
+        for (i, name) in [(0, "min"), (1, "close")] {
+            let r = Rect::new(722 + 20 * i, 34, 15, 14);
+            let state = if self.hover(0, r) { if self.inp.down { 3 } else { 2 } } else { 1 };
+            p.img(&format!("{name}-{state}"), r.x, r.y);
+            if self.clicked(0, r) {
+                self.requests.push(if i == 0 { Request::Minimize } else { Request::Close });
+            }
+        }
+        let c = Rect::ltrb(62, 142, 737, 551);
+        p.text_in(Rect::new(c.x, 250, c.w, 30), &title, &TextStyle::new(24.0, Weight::Bold, WHITE).cjk(24.0).italic());
+        p.fill(Rect::new(c.x + c.w / 2 - 60, 290, 120, 2), RED);
+        p.text_in(Rect::new(c.x, 312, c.w, 16), &l1, &T_INFO);
+        p.text_in(Rect::new(c.x, 336, c.w, 16), &l2, &T_INFO);
+        let st = TextStyle::new(12.0, Weight::Regular, rgb(0x9a9a9a));
+        let ww = p.width(&wait, &st);
+        let x = c.x + (c.w - ww) / 2;
+        p.text(x, 380, &wait, &st);
+        p.fill(Rect::new(x - 14, 386, 6, 6), if blink() { RED } else { rgb(0x5a0008) });
+        let w = (p.width(&offline, &T_BOTTOM) + 40).max(150);
+        let b = Rect::new(c.x + (c.w - w) / 2, 440, w, 24);
+        p.img_w("bottom_btn", b.x - 2, b.y - 2, b.w + 4);
+        p.text_in(b, &offline, &T_BOTTOM);
+        self.btn_fx(p, 0, b, true, false);
+        if self.clicked(0, b) {
+            if let Some(h) = &mut self.hotplug {
+                h.offline = true;
+            }
+        }
+        if self.top() == 0 && self.inp.pressed && !b.contains(self.inp.mouse) && !Rect::new(722, 34, 35, 14).contains(self.inp.mouse) {
+            self.requests.push(Request::Drag);
+        }
+    }
+
     // ---------------------------------------------------------- popup menu
 
     fn draw_menu(&mut self, p: &mut P, layer: usize, m: &mut MenuState) {
@@ -2734,6 +2826,10 @@ impl State {
                 self.layers.push(Layer::Menu(MenuState { owner: MenuOwner::Button(4), items, x: 334, y: 281, open: Some(8), armed: true }));
             }
             "perm" => self.layers.push(Layer::Dialog(Dialog::Permission)),
+            "nodevice" => {
+                // hot-plug window with nothing plugged (the scan is not repeated for a still)
+                self.hotplug = Some(Hotplug { last: Instant::now(), seen: Vec::new(), none: true, offline: false, applied: None });
+            }
             "select" => {
                 // three plugged mice, as scan() reports them
                 let fake = |key: &str, port: &str, n: u32| crate::device::Found {
@@ -2883,6 +2979,13 @@ fn draw_menu_panel(p: &mut P, x: i32, y: i32, items: &[MenuItem], hot: Option<us
 }
 
 /// Small value read-out shown while hovering/dragging a slider (port addition).
+/// What `poll_hotplug` compares: every plugged supported device by port and node.
+fn plug_sig(found: &[crate::device::Found]) -> Vec<(String, PathBuf)> {
+    let mut v: Vec<(String, PathBuf)> = found.iter().map(|f| (f.usb_name(), f.hidraw.clone())).collect();
+    v.dedup();
+    v
+}
+
 fn bubble(p: &mut P, cx: i32, bottom: i32, s: &str) {
     let w = p.width(s, &T_BUBBLE) + 8;
     let r = Rect::new(cx - w / 2, bottom - 14, w, 14);
