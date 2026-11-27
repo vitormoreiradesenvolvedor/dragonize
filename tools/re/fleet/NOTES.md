@@ -170,6 +170,28 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
   scan() lists every candidate of the id unless exactly one entry carries the answer (issue #2:
   K686AK-RGB-PRO came up as K757-WL-JP, the first entry of the id; its KB.ini layout is
   byte-for-byte the 99 keys of the k686-rgb-pro entry, so that entry is the right one for it).
+- Which interface (CDev916KB::FindHIDDevice FUN_00486600, K686AK build de7646c7): of the HID devices
+  of the id it keeps the three whose top-level collection is **usage page 0xff00 usage 1**, told apart
+  by their `HIDP_CAPS.FeatureReportByteLength` (the table at DAT_00648b8c is filled by FUN_00415b90):
+  0x408 = hDev (field +0x268, the data report 6), **6 = hCmd** (+0x26c, the command report 5 and the
+  password), 0x17e = hMusic (+0x270). Usage page 0xc usage 1 only sets bMedia. On Linux those are
+  collections of one usb interface, so one hidraw node carries both reports; `hid.rs` parses the
+  descriptor for real instead of looking for the byte pair `85 05`, which also occurs in the data of
+  other items and let a plain keyboard interface pass for the command one (issue #2: the keyboard
+  answered no password at all).
+- GetPassword (FUN_00486a90): SET feature 5 of **nine** bytes `05 81` + 7 zeros, Sleep(this+0x278) =
+  0x19 ms from the constructor at 0x48652f, then GET feature 5 of **eight**; byte 1 = 1 means bytes
+  2..7 are the password. ApplySetting sends the same report 5 seven bytes long, so the firmware takes
+  either length. SendCommand FUN_00486970 = HidD_SetFeature(h, buf, size + 1), GetCommand FUN_00486a00
+  = HidD_GetFeature(h, buf, size + 1) then memcpy from buf + 1.
+- 2.4 GHz and Bluetooth are **another protocol**, not another id of this one: `KB.ini [OPT]`
+  VID_Wireless / PID_Wireless (K686AK-RGB-PRO: 3554:fa09) reaches CDevCombo / CDev3632, whose own
+  FindHIDDevice (FUN_004853e0) opens nothing and keeps the handle of the dongle. Everything goes
+  through SendCMD_3632 (FUN_00486000): a 20-byte report `ID CMD 01 00 ..` with a checksum byte
+  (FUN_00485d10) written and read as interrupt reports, answered `ID CMD|crcerr nPackages index
+  LEN&0xf data[0..0xe]` until index + 1 = nPackages; ID is 5 for the keyboard of a combo dongle and
+  0x15 for its mouse, command 0x15 answers the 6-byte password (OnNewCombo FUN_0040c5c0, OnNewDongle
+  FUN_0040c400). Not implemented: dragonize finds nothing on those ids.
 - Generator: `fleet/gen_kbd.py OUT.json` (Cfg.ini [KEY] K lines or Dev/kb/KB.ini, keyimg.png, protocol
   constants found in the exe by byte patterns) -> `gen_models.py --kbd` (photos scaled to 650x300,
   256 colours, assets/vendor/kbd). 97 keyboards (3 entries without PSD skipped).

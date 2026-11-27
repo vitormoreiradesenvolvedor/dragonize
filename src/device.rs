@@ -454,9 +454,44 @@ pub fn diagnose() -> String {
         let _ = writeln!(o, "no supported mouse ({}) found on USB",
             models::product_ids().iter().map(|(v, p)| format!("{v:04x}:{p:04x}")).collect::<Vec<_>>().join(" "));
     }
+    // every interface of a supported id, the ones not used included: which one carries the
+    // configuration reports is what tells a wrong guess from a device that answers nothing
+    for (node, vid, pid, known, desc) in interfaces() {
+        let how = match (known, seen.iter().any(|h| h.file_name() == node.file_name())) {
+            (_, true) => "used",
+            (true, false) => "not used",
+            (false, false) => "id not in the registry (a dongle or a Bluetooth link?)",
+        };
+        let _ = writeln!(o, "{}: {vid:04x}:{pid:04x} {how}, {desc}", node.display());
+    }
     let _ = writeln!(o, "udev rule {}: {}", UDEV_PATH, if std::path::Path::new(UDEV_PATH).exists() { "installed" } else { "missing" });
     let _ = writeln!(o, "access: {:?}", access());
     o
+}
+
+/// Every hidraw interface of a usb id the registry knows, and of any other product of those
+/// vendors: a 2.4 GHz dongle or a Bluetooth link gives the keyboard or mouse an id of its own
+/// (the K686AK-RGB-PRO is 258a:010c wired and 3554:fa09 on its dongle, `KB.ini` VID_Wireless /
+/// PID_Wireless), so a device "not detected" is often one of those ids, not a missing node.
+pub fn interfaces() -> Vec<(PathBuf, u16, u16, bool, String)> {
+    let pids = models::product_ids();
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/sys/class/hidraw") else { return out };
+    let mut nodes: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+    nodes.sort();
+    for n in nodes {
+        let uevent = std::fs::read_to_string(n.join("device/uevent")).unwrap_or_default();
+        let Some(id) = uevent.lines().find_map(|l| l.strip_prefix("HID_ID=")) else { continue };
+        let mut it = id.split(':').skip(1).map(|h| u16::from_str_radix(h, 16).unwrap_or(0));
+        let (vid, pid) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
+        let known = pids.contains(&(vid, pid));
+        if !known && !pids.iter().any(|(v, _)| *v == vid) {
+            continue;
+        }
+        let desc = std::fs::read(n.join("device/report_descriptor")).unwrap_or_default();
+        out.push((PathBuf::from("/dev").join(n.file_name().unwrap_or_default()), vid, pid, known, crate::hid::Desc::of(&desc).summary()));
+    }
+    out
 }
 
 /// A plugged supported mouse: its configuration interface and USB device.
@@ -502,14 +537,14 @@ pub fn scan() -> Vec<Found> {
             continue;
         }
         let rd = std::fs::read(n.join("device/report_descriptor")).unwrap_or_default();
-        let has = |pat: &[u8]| rd.windows(pat.len()).any(|w| w == pat);
+        let d = crate::hid::Desc::of(&rd);
         let mut proto = models::identify(vid as u16, pid as u16, 0).map(|m| m.proto);
         // 258a:1007 is an OemDrv mouse (S101-4-DE: command report 5), the CDrv8832 M712 (no
         // report 5) and the Lavawolf M701 (0x9a-byte general report 4): the descriptor tells which
         if matches!(proto, Some(models::Proto::Sino | models::Proto::Sino8832 | models::Proto::Sino8801)) {
-            let want = if has(&[0x85, 0x05]) {
+            let want = if d.has(5) {
                 models::Proto::Sino
-            } else if crate::sino::feature_size(&rd, 4) == Some(0x9a) {
+            } else if d.len_of(4, crate::hid::Kind::Feat) == Some(0x9a) {
                 models::Proto::Sino8801
             } else {
                 models::Proto::Sino8832
@@ -520,43 +555,46 @@ pub fn scan() -> Vec<Found> {
         }
         let ok = match proto {
             // Sinowealth: the interface with feature reports 4 (config) and 5 (command)
-            Some(models::Proto::Sino) => has(&[0x85, 0x04]) && has(&[0x85, 0x05]),
-            Some(models::Proto::SinoBy24g) => has(&[0x85, 0x05]) && has(&[0x85, 0x08]),
-            Some(models::Proto::Sino8832) => has(&[0x85, 0x04]) && has(&[0x85, 0x06]) && has(&[0x85, 0x08]),
-            Some(models::Proto::Sino8801) => has(&[0x85, 0x04]) && has(&[0x85, 0x06]),
+            Some(models::Proto::Sino) => d.has(4) && d.has(5),
+            Some(models::Proto::SinoBy24g) => d.has(5) && d.has(8),
+            Some(models::Proto::Sino8832) => d.has(4) && d.has(6) && d.has(8),
+            Some(models::Proto::Sino8801) => d.has(4) && d.has(6),
             // CompX: the one with the 17-byte report 8 (HIDUsb.dll's mi_01&col05)
-            Some(models::Proto::Compx | models::Proto::CompxFeature) => has(&[0x85, 0x08]),
-            // keyboards: command report 5 and the 1032-byte data report 6
+            Some(models::Proto::Compx | models::Proto::CompxFeature) => d.has(8),
+            // keyboards: the command interface CDev916KB::FindHIDDevice keeps, which declares
+            // both the command feature report 5 and the 1032-byte data feature report 6
             // (BYK901 builds: the interface with feature report 9, the key matrix)
-            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.byk) => has(&[0x85, 0x09]),
+            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.byk) => d.has(9),
             // QMK/VIA: the raw HID interface (usage page 0xff60)
-            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.via.is_some()) => has(&[0x06, 0x60, 0xff]),
+            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.via.is_some()) => d.page(0xff60),
             // xyui: the 8-byte feature report 7
-            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.xy) => has(&[0x85, 0x07]),
+            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.xy) => d.has(7),
             // Jieli: USB interface 2 (witmodSdk GetHidInfoList "mi_02")
             Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.jl.is_some()) => {
                 std::fs::canonicalize(n.join("device")).ok().and_then(|p| p.parent().and_then(|i| i.file_name()).map(|f| f.to_string_lossy().ends_with(".2"))).unwrap_or(false)
             }
             // magnetic K729RGB-M: usage page 0xff00, usage 1 (FUN_0046a0b0)
-            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.mg) => has(&[0x06, 0x00, 0xff, 0x09, 0x01]),
+            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.mg) => d.decl(0xff00, 1),
             // MosArt (K598-KNS / K599): the interface with report 8 and feature reports 0x14 / 0x15
-            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.mk) => has(&[0x85, 0x14]),
+            Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.mk) => d.has(0x14),
             // HidServ: the 64-byte report interface on usage page 0xff1c, usage 0x92
             Some(models::Proto::SinoKbd) if models::identify(vid as u16, pid as u16, 0).and_then(|m| m.kb).is_some_and(|k| k.hs.is_some() || k.du) => {
-                has(&[0x06, 0x1c, 0xff]) && has(&[0x09, 0x92])
+                d.decl(0xff1c, 0x92)
             }
-            Some(models::Proto::SinoKbd) => has(&[0x85, 0x05]) && has(&[0x85, 0x06]),
+            Some(models::Proto::SinoKbd) => {
+                d.has_kind(5, crate::hid::Kind::Feat) && d.len_of(6, crate::hid::Kind::Feat) == Some(crate::kbd::DATA_LEN)
+            }
             // duilib mice: the HidServ interface (usage page 0xff1c, usage 0x92)
-            Some(models::Proto::Duilib) => has(&[0x06, 0x1c, 0xff]) && has(&[0x09, 0x92]),
+            Some(models::Proto::Duilib) => d.decl(0xff1c, 0x92),
             // xyui mice: usage page 0xff00, usage 1 (DeviceDriver.exe FUN_00440e20)
-            Some(models::Proto::Xyui | models::Proto::Bydui) => has(&[0x06, 0x00, 0xff, 0x09, 0x01]),
+            Some(models::Proto::Xyui | models::Proto::Bydui) => d.decl(0xff00, 1),
             // MosArt: the interface with output report 5
-            Some(models::Proto::Mosart) => has(&[0x85, 0x05]),
+            Some(models::Proto::Mosart) => d.has(5),
             // libdc: the interface with feature reports 2..6 (16..2048 bytes)
-            Some(models::Proto::Libdc) => has(&[0x85, 0x06]),
+            Some(models::Proto::Libdc) => d.has(6),
             // PixArt: the interface with feature report 5 (PXICtrl3169 HidD_SetFeature id 5)
-            Some(models::Proto::Pixart) => has(&[0x85, 0x05]),
-            _ => has(&[0x06, 0xa0, 0xff]),
+            Some(models::Proto::Pixart) => d.has(5),
+            _ => d.page(0xffa0),
         };
         if !ok {
             continue;
@@ -604,6 +642,18 @@ pub fn scan() -> Vec<Found> {
             if named.is_empty() {
                 // no answer, or a password no entry carries: every keyboard of the id is a candidate
                 named = models::MODELS.iter().filter(pw_family).collect();
+            }
+            // more than one interface of the keyboard can declare both reports; the one that
+            // answered the password is the command interface, so it replaces one that only guessed
+            let prev: Vec<usize> =
+                out.iter().enumerate().filter(|(_, g)| g.usb == found.usb && pw_family(&&g.model)).map(|(i, _)| i).collect();
+            if !prev.is_empty() {
+                if prev.len() <= named.len() {
+                    continue;
+                }
+                for i in prev.into_iter().rev() {
+                    out.remove(i);
+                }
             }
             for m in named {
                 out.push(Found { model: m, ..found.clone() });
