@@ -78,8 +78,16 @@ CID / MID (`src/models_cid.rs`, read out of each product's Windows package by
 answers its password (`kbd::psd`), which names one unless two entries carry it
 (K686-RGB-PRO and K688-RGB-PRO both answer 03 00 00 00 01 20 on 258a:010c).
 Nothing tells apart the duilib / xyui / MosArt / libdc / CDrvBY24G mice or the
-HidServ / Jieli keyboards, so those always list every candidate.
-`--diagnose` prints the candidates left and what the device reported.
+HidServ / Jieli keyboards, so those always list every candidate. The selection
+window takes typing to narrow a list that long (41 keyboards answer to
+258a:010c) and remembers the pick.
+Which hidraw node a device is configured through is decided by reading its
+report descriptor (`src/hid.rs`), as the drivers decide it from HIDP_CAPS:
+the reports the protocol needs, declared as the reports they are, and the
+usage page of the interface. `--diagnose` prints the candidates left, what the
+device reported, and every interface of the vendor with what it declares,
+the ids no entry claims included: a 2.4 GHz dongle or a Bluetooth link gives
+the same keyboard an id of its own and speaks its own protocol.
 The udev rule lists every supported PID (04d9 alone would match unrelated
 Holtek devices). CLI: `--list-models`, `--model KEY`, `--usb PORT`.
 

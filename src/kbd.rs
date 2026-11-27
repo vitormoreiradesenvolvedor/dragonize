@@ -81,7 +81,7 @@ use crate::device::{Device, Found};
 
 pub const MATRIX: usize = 0x100;
 const BYK_MATRIX: usize = 0x7e;
-const DATA_LEN: usize = 0x408;
+pub const DATA_LEN: usize = 0x408;
 const PROFILE: usize = 8;
 const PAIRS: usize = 0x16;
 pub const COLORS: usize = 7;
@@ -633,24 +633,7 @@ pub fn rgb_table(kb: &Kbd, palettes: &[[u32; COLORS]]) -> Vec<u8> {
 /// Size in bytes (with the id) of feature report `id`, from the report descriptor.
 pub fn feature_size(found: &Found, id: u8) -> Option<usize> {
     let rd = std::fs::read(found.hidraw_sys().join("device/report_descriptor")).ok()?;
-    let (mut i, mut size, mut count, mut cur, mut bits) = (0usize, 0u32, 0u32, 0u8, 0u32);
-    while i < rd.len() {
-        let p = rd[i];
-        let n = match p & 3 { 3 => 4, x => x as usize };
-        let mut v = 0u32;
-        for k in 0..n {
-            v |= (*rd.get(i + 1 + k)? as u32) << (8 * k);
-        }
-        match p & 0xfc {
-            0x74 => size = v,
-            0x94 => count = v,
-            0x84 => cur = v as u8,
-            0xb0 if cur == id => bits += size * count,
-            _ => {}
-        }
-        i += 1 + n;
-    }
-    (bits > 0).then(|| 1 + (bits as usize).div_ceil(8))
+    crate::hid::Desc::of(&rd).len_of(id, crate::hid::Kind::Feat)
 }
 
 fn cmd(d: &Device, c: u8, addr: u8) -> std::io::Result<()> {
@@ -679,10 +662,26 @@ fn write(d: &Device, c: u8, addr: u8, len: u8, data: &[u8]) -> std::io::Result<(
 
 /// The 6-byte password the keyboard answers to 05 81.
 pub fn psd(d: &Device) -> Option<[u8; 6]> {
-    cmd(d, 0x81, 0).ok()?;
-    let n = feature_size(&d.found, 5).unwrap_or(8).max(8);
-    let r = d.get_feature(5, n).ok()?;
-    (r[1] == 1).then(|| [r[2], r[3], r[4], r[5], r[6], r[7]])
+    let n = feature_size(&d.found, 5).unwrap_or(0);
+    // the driver sends nine bytes (`05 81` and seven zeros) and reads eight back whatever the
+    // descriptor declares (GetPassword 0x486a90), so try that framing too and not only the
+    // declared one: both reach the same firmware and either may be the one it answers
+    let mut tried: Vec<usize> = Vec::new();
+    for len in [n, 9, 7] {
+        if len < 3 || tried.contains(&len) {
+            continue;
+        }
+        tried.push(len);
+        if d.set_feature(&[5, 0x81, 0], len).is_err() {
+            continue;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let Ok(r) = d.get_feature(5, n.max(8)) else { continue };
+        if r[1] == 1 {
+            return Some([r[2], r[3], r[4], r[5], r[6], r[7]]);
+        }
+    }
+    None
 }
 
 /// One VIA command and its answer (the keyboard echoes the command byte).

@@ -317,21 +317,7 @@ fn feature_len(d: &Device, id: u8) -> Option<usize> {
 
 /// Size of feature report `id` in report descriptor `rd` (with the id byte).
 pub fn feature_size(rd: &[u8], id: u8) -> Option<usize> {
-    let (mut i, mut cur, mut size, mut count, mut bits) = (0, 0u32, 0u32, 0u32, 0u32);
-    while i < rd.len() {
-        let p = rd[i];
-        let n = [0, 1, 2, 4][(p & 3) as usize];
-        let v = rd.get(i + 1..i + 1 + n).map(|b| b.iter().rev().fold(0u32, |a, &x| a << 8 | x as u32)).unwrap_or(0);
-        match p & 0xfc {
-            0x84 => cur = v,
-            0x74 => size = v,
-            0x94 => count = v,
-            0xb0 if cur == id as u32 => bits += size * count,
-            _ => {}
-        }
-        i += 1 + n;
-    }
-    (bits > 0).then(|| 1 + (bits as usize).div_ceil(8))
+    crate::hid::Desc::of(rd).len_of(id, crate::hid::Kind::Feat)
 }
 
 fn s8832_decode(model: &Model, g: &[u8], mode: &[u8], m: usize, matrix: &[u8]) -> DeviceProfile {
