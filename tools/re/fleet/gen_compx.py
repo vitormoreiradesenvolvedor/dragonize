@@ -10,6 +10,8 @@ Per product, from the package's Config.ini (ids are base64 of "Redragon" + text)
             and default function), DPIRange = min,max,step[,min,max,step..],flags, Sensor
 DPI encoding = mdb DPIControl.ValueToDPI / UpdateValue (decompiled with ILSpy), with the
 "discrete" sensors' tables from driver_sensor.h (SensorDPIFile.GetSensorDPI).
+The CID / MID that tells apart the products sharing one usb id is not here: gen_compx_ids.py
+writes it straight to src/models_cid.rs (it fetches the packages it needs on its own).
 usage: gen_compx.py OUT.json
 """
 import base64

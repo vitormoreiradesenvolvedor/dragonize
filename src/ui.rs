@@ -638,7 +638,7 @@ impl State {
     }
 
     /// Finds the plugged mice: one is opened directly, several open the
-    /// selection window (the chosen one is remembered for this session).
+    /// selection window (the chosen one is remembered, `picked_file`).
     pub fn attach_device(&mut self) {
         use crate::device::*;
         if let Access::NoPermission(_) = access() {
@@ -650,15 +650,8 @@ impl State {
         let found = scan();
         // one USB device may be listed once per candidate model (HidServ keyboards): the
         // current model's entry first
-        let cur = crate::models::current();
-        let pick = self
-            .target
-            .as_ref()
-            .and_then(|t| {
-                let mut on = found.iter().filter(|f| &f.usb_name() == t);
-                on.clone().find(|f| std::ptr::eq(f.model, cur)).or_else(|| on.next())
-            })
-            .or_else(|| if found.len() == 1 { found.first() } else { None });
+        let picked = std::fs::read_to_string(self.picked_file()).ok();
+        let pick = crate::device::pick(&found, self.target.as_deref(), crate::models::current(), picked.as_deref());
         let Some(f) = pick.cloned() else {
             if found.len() > 1 {
                 self.open_selector(found);
@@ -765,9 +758,18 @@ impl State {
         self.hotplug.as_ref().is_some_and(|h| h.none && !h.offline)
     }
 
+    /// The model picked in the selection dialog, kept so the dialog does not come back on
+    /// every start for a usb id several products share (CompX mice, Sinowealth keyboards).
+    fn picked_file(&self) -> PathBuf {
+        self.base.join("model")
+    }
+
+
     /// Picks the mouse to configure (before `attach_device`).
     pub fn choose(&mut self, f: &crate::device::Found) {
         self.target = Some(f.usb_name());
+        let _ = std::fs::create_dir_all(&self.base);
+        let _ = std::fs::write(self.picked_file(), f.model.key);
         self.set_model(f.model);
     }
 
@@ -783,7 +785,9 @@ impl State {
                 list.iter().position(|f| &f.usb_name() == t && std::ptr::eq(f.model, cur)).or_else(|| list.iter().position(|f| &f.usb_name() == t))
             })
             .unwrap_or(0);
-        self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel, top: 0 }));
+        // 3 rows are visible: scroll the preselected one into view (24 CompX mice share 3554:f55e)
+        let top = sel.saturating_sub(2).min(list.len().saturating_sub(3));
+        self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel, top }));
     }
 
     /// Sends the UI profiles to the mouse (only changed fields), verified by read-back.

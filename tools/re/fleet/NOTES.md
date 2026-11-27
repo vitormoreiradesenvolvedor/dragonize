@@ -3,11 +3,20 @@
 Source: `~/Downloads/Regradon_Softwares/{Mouses,Teclados,Combos_Teclado_Mouse}` (494 downloads,
 `INDICE.csv` = file -> retail products -> official URL).
 
+Re-downloading one package: `https://www.redragonzone.com/download/list?page=1&categoryId=&keyword=M916`
+(the JSON behind software.html; `data.list[].driverUrl` is a `/fs/show/<id>.{exe,zip,rar}` path,
+`data.pageCount` pages). Unpacking: Inno `innoextract -s`, NSIS niuniu `7z x` then `7z x app.7z`
+(e.g. the duilib M916-LIT), Advanced Installer / InstallShield as below.
+
 Work dir (outside repo, regenerable): `~/.cache/redragon-all/`
 - `x/<cat>/<pkg>/` unpacked (`extract_all.py`; Inno 6.3 via innoextract master,
   6.4 via dscho's fork `tools/inno-dscho`, both built in `tools/`); `fix_inno63.py` = 2nd pass
 - `fp.json` (`fingerprint.py`), `inventory.tsv` (`classify.py`: pkg, family, main exe, usb ids)
 - `ghidra/{bin,proj,out}`: one Ghidra project per binary; `out/*.feat.tsv` (FuncFeatures.java),
+  (Ghidra 12.2 wants JDK 25, `JAVA_HOME=.../jdk-25`, and refuses a project path with a dot
+  element, so `proj` cannot live under `~/.cache`: `analyzeHeadless <proj> <name> -import BIN
+  -scriptPath . -postScript Decomp.java OUT.c <spec>`, then `-process BIN -noanalysis` to
+  decompile more out of the saved project)
   `out/*.c` (Decomp.java)
 - 2026-11-06 2nd pass, no Wine needed (`extract3.log`):
   * Advanced Installer SFX (K513-RGB, SHIVA K515-RGB, Shiva K512-RGB): `tools/advx.py` reads the
@@ -131,9 +140,19 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
   Buttoninterface::HexToDpi (from the shipped .obj with symbols, M923-WL) = same table/formula;
   multi-segment ranges assumed as mdb (unverified there) and capped where x > 0xff.
 - Buttons: KeyFunMap [type, p1, p2] at 0x60+4k; shortcut keys at 0x100+0x20k (ShortcutKeyToBuffer).
-- Config.ini (base64 "Redragon"+text): gen_compx.py. Many products share 3554:f55e/f5d5; the
-  firmware tells them apart by CID/MID (cmd 01 reply bytes 10-12) - not used yet: the first
-  registry entry is picked, the user can switch model.
+- Config.ini (base64 "Redragon"+text): gen_compx.py. Many products share 3554:f55e/f5d5 (24
+  entries on f55e); the firmware tells them apart by CID/MID, the reply to command 1 at bytes
+  10-12 = CID, MID, DeviceType (ilspy: `DataParser.GetDeviceInfo(command.receivedData)` under
+  `UsbCommandID.EncryptionData` = 1; compx.rs `psd_via` over output report 8). The driver matches
+  them against its own package (`FormHomePage::GetDeviceInfo`: `deviceInfo.CID == driveParam.CID
+  && deviceInfo.MID == driveParam.DeviceParams[j].MID`), where Config.ini `CID` is base64 of
+  "<DriveName><digits>" and the digits are **decimal** (`DriveConfig.cs` `int.Parse`) and MID is
+  `[Device<n>] MID`. `gen_compx_ids.py` -> `src/models_cid.rs` has it for 37 of the 39 entries
+  (CID is 0x17 throughout, MID is the product; M917-PRO and M997-PR0-1K are off the download
+  index). scan() asks the mouse and keeps the entries carrying the answer; 5 M933 shells share
+  MID 0x2f, M913-WL / M913W-WL 0x33 and 3 M919 shells 0x34, so those narrow to themselves. With
+  no answer and no entry the whole id goes to the selection dialog (issue #1: 1.0.2 showed
+  M916AK-PRO, which is CID 0x17 MID 0x05, as M814W-WL, the first entry of f55e).
 
 ## Sinowealth keyboards (KeyboardDrv.exe + keyboard builds of OemDrv.exe; 258a:0049 / 010c / 019d)
 - Protocol from the decompiles (KeyboardDrv 801262a0 FUN_004110e0 ApplySetting, OemDrv 4f3eab8b
@@ -144,7 +163,13 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
 - Cfg [OPT] ProAddr/KeyAddr/RgbTabAddr override the build defaults (b6/d4/b8 or c6/d8/c8).
 - Key codes (keyinfo_to_hardware_code FUN_00489960): type 0 key (b2 modifier mask, b3 usage), 6 modifier,
   7 mouse f0-f4, 4 consumer usage, 0x20 Fn, 0x10 macro, 0 disabled.
-- One id = dozens of keyboards: scan() asks the password (6 bytes) and matches Cfg PSD.
+- One id = dozens of keyboards: scan() asks the password (6 bytes) and matches Cfg PSD. The
+  password is parsed as **hex** (`wcstoul` base 0x10, `lea ebx,[eax+0x10]` before the parser at
+  0x410713 of the K686AK-RGB-PRO build de7646c7) - gen_kbd.py's `int(x, 16)` is right. It is not
+  unique either: K686-RGB-PRO and K688-RGB-PRO both answer 03 00 00 00 01 20 on 258a:010c, so
+  scan() lists every candidate of the id unless exactly one entry carries the answer (issue #2:
+  K686AK-RGB-PRO came up as K757-WL-JP, the first entry of the id; its KB.ini layout is
+  byte-for-byte the 99 keys of the k686-rgb-pro entry, so that entry is the right one for it).
 - Generator: `fleet/gen_kbd.py OUT.json` (Cfg.ini [KEY] K lines or Dev/kb/KB.ini, keyimg.png, protocol
   constants found in the exe by byte patterns) -> `gen_models.py --kbd` (photos scaled to 650x300,
   256 colours, assets/vendor/kbd). 97 keyboards (3 entries without PSD skipped).
@@ -297,8 +322,14 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
   every candidate, the selection dialog names the device. Mouse.json VID/PID (0c45:1007) is a stub.
 - Transport = HidServ packets (kbd.rs `hs_packet`) on usage page 0xff1c / usage 0x92, chunks of
   0x38. 01 / 02 bracket every write; 0xaa = dongle linked ([8] = 0xff, only off the wired id).
-- Info (cmd 3, 0x22 bytes): [0] 55aa, [5] keys, [7] 0x16 (0 + 55aa = fresh: the driver writes it
-  back with 0x16, cmd 4), [9] sensor, [0xb] step, [0xc] max, [0xe] min. DPI display FUN_004b8470
+- Info (cmd 3, 0x22 bytes): [0] 55aa, [5] keys, [7] the build's "initialised" flag (0 + 55aa =
+  fresh: the driver writes the flag back with cmd 4), [9] sensor, [0xb] step, [0xc] max,
+  [0xe] min. **The flag is per build**: 0x16 in the M916-PLUS one (FUN_004af040), 0x01 in the
+  M916-LIT one (`cmp byte [ecx+0x153b],1` at 0x4ab794 / `mov byte [ecx+0x153b],1` at 0x4ab7cb,
+  Redragon M916-LIT-1K.exe sha256 b9ef889b, download /fs/show/1767085636435331.zip; issue #3 -
+  1.0.2 refused the mouse with "reports no configuration"). du.rs `init_flag` keeps the per-model
+  value and `info` accepts any non-zero flag; a new duilib package has to be checked for its own
+  value (the generator does not read it yet). DPI display FUN_004b8470
   (raw -> CPI): 3395 50r+50 (0..519), 8925 50r+50 / (r-50)*100+100 (0..149, one byte written to
   both stage bytes), 0x70 r+10 (0..45000), 3104 table-ish (0..max-10), 3325 / other r*step+min.
 - Mouse settings (cmd 5/6): [0] active profile; profile block 0x57 at p*0x80 (FUN_004b2830 write,

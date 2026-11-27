@@ -21,6 +21,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod data;
 pub use data::MODELS;
 
+#[path = "models_cid.rs"]
+mod cid;
+pub use cid::COMPX_IDS;
+
 /// A button slot: its 4-byte function at `profile base + off`, and where its
 /// number is drawn on the product photo (general page box coordinates).
 #[derive(Debug)]
@@ -156,9 +160,31 @@ pub fn needs_psd(vid: u16, pid: u16) -> bool {
         && m.proto == Proto::CompxFeature).count() > 1
 }
 
-/// The keyboard of this id answering password `psd`, when several share the id.
-pub fn identify_kbd(vid: u16, pid: u16, psd: [u8; 6]) -> Option<&'static Model> {
-    MODELS.iter().find(|m| m.vid == vid && m.pid == pid && m.kb.is_some_and(|k| k.psd == psd))
+/// The "Mouse Drive Beta" mice of this id reporting CID / MID (`COMPX_IDS`, the Config.ini of
+/// their Windows package; the driver matches them the same way, FormHomePage::GetDeviceInfo).
+/// Usually one, but some shells ship the same pair (M913-WL and M913W-WL).
+pub fn identify_compx(vid: u16, pid: u16, cid: u8, mid: u8) -> Vec<&'static Model> {
+    COMPX_IDS
+        .iter()
+        .filter(|(_, c, m)| (*c, *m) == (cid, mid))
+        .filter_map(|(k, ..)| by_key(k))
+        .filter(|m| m.vid == vid && (m.pid == pid || m.alt_pids.contains(&pid)))
+        .collect()
+}
+
+/// Whether asking a CompX mouse of this id its CID / MID can name one of them: several entries
+/// answer to the id and at least one of them has a CID / MID on file.
+pub fn needs_compx_id(vid: u16, pid: u16) -> bool {
+    let of_id = || MODELS.iter().filter(move |m| m.vid == vid && (m.pid == pid || m.alt_pids.contains(&pid)) && m.proto == Proto::Compx);
+    of_id().count() > 1 && of_id().any(|m| COMPX_IDS.iter().any(|(k, ..)| *k == m.key))
+}
+
+/// Every keyboard of this id whose password is `psd` (KeyboardDrv / OemDrv GetPassword).
+/// One password is not always unique:
+/// K686-RGB-PRO and K688-RGB-PRO both answer 03 00 00 00 01 20 on 258a:010c, so the caller
+/// offers all of them instead of taking whichever comes first (issue #2).
+pub fn identify_kbds(vid: u16, pid: u16, psd: [u8; 6]) -> Vec<&'static Model> {
+    MODELS.iter().filter(|m| m.vid == vid && m.pid == pid && m.kb.is_some_and(|k| k.psd == psd)).collect()
 }
 
 /// (VID, PID) of every model.
@@ -361,6 +387,32 @@ mod tests {
         assert_eq!(identify_psd(0x25a7, 0xfa7c, 0x33, 0x02).unwrap().key, "m994");
         assert_eq!(identify_psd(0x25a7, 0xfa7b, 0x33, 0x01).unwrap().name, "M693-RGB");
         assert!(!needs_psd(0x25a7, 0xfa68));
+    }
+
+    #[test]
+    fn shared_ids_keep_every_candidate() {
+        // one password, two keyboards of 258a:010c (issue #2): neither may win by position
+        let both = identify_kbds(0x258a, 0x010c, [0x03, 0x00, 0x00, 0x00, 0x01, 0x20]);
+        let keys: Vec<&str> = both.iter().map(|m| m.key).collect();
+        assert_eq!(keys, ["k688-rgb-pro", "k686-rgb-pro"]);
+        assert!(identify_kbds(0x258a, 0x010c, [0; 6]).is_empty());
+        // the usb id of the CompX mice names only the first entry (issue #1): M916AK-PRO is
+        // wired 3554:f55e, which 24 entries answer to, and M814W-WL comes first
+        let f55e = MODELS.iter().filter(|m| m.vid == 0x3554 && m.proto == Proto::Compx
+            && (m.pid == 0xf55e || m.alt_pids.contains(&0xf55e))).count();
+        assert!(f55e > 1, "3554:f55e is shared, got {f55e} entries");
+        assert_eq!(identify(0x3554, 0xf55e, 0).unwrap().key, "m814w-wl");
+        // its CID / MID does name it: Config.ini CID "Redragon M916-PRO-1K23", [Device1] MID 5
+        assert!(needs_compx_id(0x3554, 0xf55e));
+        let keys = |v: Vec<&Model>| v.iter().map(|m| m.key).collect::<Vec<_>>();
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x05)), ["m916-pro-1k"]);
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x2e)), ["m814w-wl"]);
+        // the two M913-WL shells ship the same pair: both are offered, nothing else of the id
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x33)), ["m913-wl", "m913w-wl"]);
+        // a pair of another id, or one no package carries, names nothing
+        assert!(identify_compx(0x3554, 0xf55e, 0x17, 0x2f).is_empty());
+        assert!(identify_compx(0x3554, 0xf55e, 0x17, 0xff).is_empty());
+        assert!(!needs_compx_id(0x3554, 0xf54c));
     }
 
     #[test]
