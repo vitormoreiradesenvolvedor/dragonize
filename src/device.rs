@@ -577,6 +577,20 @@ pub fn scan() -> Vec<Found> {
             }
             found.model = model;
         }
+        // one id, dozens of CompX mice: the firmware's CID / MID names one of them, as the
+        // "Mouse Drive Beta" driver does it (command 1, FormHomePage::GetDeviceInfo)
+        if models::needs_compx_id(vid as u16, pid as u16) {
+            let named = Device::open(&found).ok().and_then(|d| crate::compx::psd_via(&d, false))
+                .map(|(cid, mid)| models::identify_compx(vid as u16, pid as u16, cid, mid))
+                .unwrap_or_default();
+            if !named.is_empty() {
+                // the shells sharing a pair are offered together, the rest of the id dropped
+                for m in named {
+                    out.push(Found { model: m, ..found.clone() });
+                }
+                continue;
+            }
+        }
         // one id, dozens of keyboards: their password (KeyboardDrv / OemDrv GetPassword). The
         // password names one of them only when it answers and no other entry of the id shares it;
         // otherwise every candidate is listed and the selection dialog names the keyboard

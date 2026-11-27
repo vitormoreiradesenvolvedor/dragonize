@@ -141,15 +141,18 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
   multi-segment ranges assumed as mdb (unverified there) and capped where x > 0xff.
 - Buttons: KeyFunMap [type, p1, p2] at 0x60+4k; shortcut keys at 0x100+0x20k (ShortcutKeyToBuffer).
 - Config.ini (base64 "Redragon"+text): gen_compx.py. Many products share 3554:f55e/f5d5 (24
-  entries on f55e); the firmware tells them apart by CID/MID (cmd 01 reply bytes 10-12) - not
-  used yet, so scan() lists every candidate and the selection dialog names the mouse (issue #1:
-  M916AK-PRO came up as M814W-WL, the first entry of f55e). To use it the registry needs a
-  CID/MID per entry: gen_compx.py would read Config.ini `CID` (base64 "Redragon <name><digits>",
-  e.g. "Redragon M916-PRO-1K23" -> 23) and `[Device<n>] MID` (5 for that mouse), and identify()
-  would have to stop reading `bcd` as a revision range for Proto::Compx. Whether the driver reads
-  the CID digits as hex or decimal is **not verified** (the .NET "Mouse Drive Beta" side was not
-  decompiled for this), so nothing is matched on them yet; `--diagnose` prints what the mouse
-  answers (compx::psd_via over output report 8) so device reports carry it.
+  entries on f55e); the firmware tells them apart by CID/MID, the reply to command 1 at bytes
+  10-12 = CID, MID, DeviceType (ilspy: `DataParser.GetDeviceInfo(command.receivedData)` under
+  `UsbCommandID.EncryptionData` = 1; compx.rs `psd_via` over output report 8). The driver matches
+  them against its own package (`FormHomePage::GetDeviceInfo`: `deviceInfo.CID == driveParam.CID
+  && deviceInfo.MID == driveParam.DeviceParams[j].MID`), where Config.ini `CID` is base64 of
+  "<DriveName><digits>" and the digits are **decimal** (`DriveConfig.cs` `int.Parse`) and MID is
+  `[Device<n>] MID`. `gen_compx_ids.py` -> `src/models_cid.rs` has it for 37 of the 39 entries
+  (CID is 0x17 throughout, MID is the product; M917-PRO and M997-PR0-1K are off the download
+  index). scan() asks the mouse and keeps the entries carrying the answer; 5 M933 shells share
+  MID 0x2f, M913-WL / M913W-WL 0x33 and 3 M919 shells 0x34, so those narrow to themselves. With
+  no answer and no entry the whole id goes to the selection dialog (issue #1: 1.0.2 showed
+  M916AK-PRO, which is CID 0x17 MID 0x05, as M814W-WL, the first entry of f55e).
 
 ## Sinowealth keyboards (KeyboardDrv.exe + keyboard builds of OemDrv.exe; 258a:0049 / 010c / 019d)
 - Protocol from the decompiles (KeyboardDrv 801262a0 FUN_004110e0 ApplySetting, OemDrv 4f3eab8b

@@ -21,6 +21,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod data;
 pub use data::MODELS;
 
+#[path = "models_cid.rs"]
+mod cid;
+pub use cid::COMPX_IDS;
+
 /// A button slot: its 4-byte function at `profile base + off`, and where its
 /// number is drawn on the product photo (general page box coordinates).
 #[derive(Debug)]
@@ -154,6 +158,25 @@ pub fn identify_psd(vid: u16, pid: u16, cid: u8, mid: u8) -> Option<&'static Mod
 pub fn needs_psd(vid: u16, pid: u16) -> bool {
     MODELS.iter().filter(|m| m.vid == vid && (m.pid == pid || m.alt_pids.contains(&pid)) && m.bcd != (0, 0)
         && m.proto == Proto::CompxFeature).count() > 1
+}
+
+/// The "Mouse Drive Beta" mice of this id reporting CID / MID (`COMPX_IDS`, the Config.ini of
+/// their Windows package; the driver matches them the same way, FormHomePage::GetDeviceInfo).
+/// Usually one, but some shells ship the same pair (M913-WL and M913W-WL).
+pub fn identify_compx(vid: u16, pid: u16, cid: u8, mid: u8) -> Vec<&'static Model> {
+    COMPX_IDS
+        .iter()
+        .filter(|(_, c, m)| (*c, *m) == (cid, mid))
+        .filter_map(|(k, ..)| by_key(k))
+        .filter(|m| m.vid == vid && (m.pid == pid || m.alt_pids.contains(&pid)))
+        .collect()
+}
+
+/// Whether asking a CompX mouse of this id its CID / MID can name one of them: several entries
+/// answer to the id and at least one of them has a CID / MID on file.
+pub fn needs_compx_id(vid: u16, pid: u16) -> bool {
+    let of_id = || MODELS.iter().filter(move |m| m.vid == vid && (m.pid == pid || m.alt_pids.contains(&pid)) && m.proto == Proto::Compx);
+    of_id().count() > 1 && of_id().any(|m| COMPX_IDS.iter().any(|(k, ..)| *k == m.key))
 }
 
 /// Every keyboard of this id whose password is `psd` (KeyboardDrv / OemDrv GetPassword).
@@ -373,13 +396,23 @@ mod tests {
         let keys: Vec<&str> = both.iter().map(|m| m.key).collect();
         assert_eq!(keys, ["k688-rgb-pro", "k686-rgb-pro"]);
         assert!(identify_kbds(0x258a, 0x010c, [0; 6]).is_empty());
-        // the CompX mice of one id are not told apart by anything the registry holds (issue #1):
-        // M916AK-PRO reports 3554:f55e wired, and that id alone names M814W-WL
+        // the usb id of the CompX mice names only the first entry (issue #1): M916AK-PRO is
+        // wired 3554:f55e, which 24 entries answer to, and M814W-WL comes first
         let f55e = MODELS.iter().filter(|m| m.vid == 0x3554 && m.proto == Proto::Compx
             && (m.pid == 0xf55e || m.alt_pids.contains(&0xf55e))).count();
         assert!(f55e > 1, "3554:f55e is shared, got {f55e} entries");
         assert_eq!(identify(0x3554, 0xf55e, 0).unwrap().key, "m814w-wl");
-        assert!(by_key("m916-pro-1k").unwrap().alt_pids.contains(&0xf55e));
+        // its CID / MID does name it: Config.ini CID "Redragon M916-PRO-1K23", [Device1] MID 5
+        assert!(needs_compx_id(0x3554, 0xf55e));
+        let keys = |v: Vec<&Model>| v.iter().map(|m| m.key).collect::<Vec<_>>();
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x05)), ["m916-pro-1k"]);
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x2e)), ["m814w-wl"]);
+        // the two M913-WL shells ship the same pair: both are offered, nothing else of the id
+        assert_eq!(keys(identify_compx(0x3554, 0xf55e, 0x17, 0x33)), ["m913-wl", "m913w-wl"]);
+        // a pair of another id, or one no package carries, names nothing
+        assert!(identify_compx(0x3554, 0xf55e, 0x17, 0x2f).is_empty());
+        assert!(identify_compx(0x3554, 0xf55e, 0x17, 0xff).is_empty());
+        assert!(!needs_compx_id(0x3554, 0xf54c));
     }
 
     #[test]

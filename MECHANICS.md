@@ -70,14 +70,16 @@ window does not come back on the next start. Profiles of other models live in
 `~/.config/m801-rgb/models/<key>/`; the M801 keeps its original location.
 
 One USB id, several products: a device whose id is served by more than one
-registry entry is listed once per candidate, and the selection window names
-them. That is every duilib / xyui / MosArt / libdc / CDrvBY24G mouse, the
-CompX mice of 3554:f55d / f55e / f5d5 (24 products on f55e alone; only the
-firmware's CID / MID tells them apart and the registry does not carry it yet)
-and the Sinowealth keyboards of one id whose password (`kbd::psd`) does not
-answer or is shared by several entries (K686-RGB-PRO and K688-RGB-PRO both
-answer 03 00 00 00 01 20 on 258a:010c). `--diagnose` prints the candidates
-and what the device itself reports, so a device report carries it.
+registry entry is asked who it is, and whatever that leaves is listed once
+per candidate for the selection window to name. A CompX mouse answers its
+CID / MID (`src/models_cid.rs`, read out of each product's Windows package by
+`tools/re/fleet/gen_compx_ids.py`), which names one of the 24 products of
+3554:f55e, or the few shells that ship the same pair. A Sinowealth keyboard
+answers its password (`kbd::psd`), which names one unless two entries carry it
+(K686-RGB-PRO and K688-RGB-PRO both answer 03 00 00 00 01 20 on 258a:010c).
+Nothing tells apart the duilib / xyui / MosArt / libdc / CDrvBY24G mice or the
+HidServ / Jieli keyboards, so those always list every candidate.
+`--diagnose` prints the candidates left and what the device reported.
 The udev rule lists every supported PID (04d9 alone would match unrelated
 Holtek devices). CLI: `--list-models`, `--model KEY`, `--usb PORT`.
 
