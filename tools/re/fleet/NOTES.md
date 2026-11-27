@@ -3,11 +3,20 @@
 Source: `~/Downloads/Regradon_Softwares/{Mouses,Teclados,Combos_Teclado_Mouse}` (494 downloads,
 `INDICE.csv` = file -> retail products -> official URL).
 
+Re-downloading one package: `https://www.redragonzone.com/download/list?page=1&categoryId=&keyword=M916`
+(the JSON behind software.html; `data.list[].driverUrl` is a `/fs/show/<id>.{exe,zip,rar}` path,
+`data.pageCount` pages). Unpacking: Inno `innoextract -s`, NSIS niuniu `7z x` then `7z x app.7z`
+(e.g. the duilib M916-LIT), Advanced Installer / InstallShield as below.
+
 Work dir (outside repo, regenerable): `~/.cache/redragon-all/`
 - `x/<cat>/<pkg>/` unpacked (`extract_all.py`; Inno 6.3 via innoextract master,
   6.4 via dscho's fork `tools/inno-dscho`, both built in `tools/`); `fix_inno63.py` = 2nd pass
 - `fp.json` (`fingerprint.py`), `inventory.tsv` (`classify.py`: pkg, family, main exe, usb ids)
 - `ghidra/{bin,proj,out}`: one Ghidra project per binary; `out/*.feat.tsv` (FuncFeatures.java),
+  (Ghidra 12.2 wants JDK 25, `JAVA_HOME=.../jdk-25`, and refuses a project path with a dot
+  element, so `proj` cannot live under `~/.cache`: `analyzeHeadless <proj> <name> -import BIN
+  -scriptPath . -postScript Decomp.java OUT.c <spec>`, then `-process BIN -noanalysis` to
+  decompile more out of the saved project)
   `out/*.c` (Decomp.java)
 - 2026-11-06 2nd pass, no Wine needed (`extract3.log`):
   * Advanced Installer SFX (K513-RGB, SHIVA K515-RGB, Shiva K512-RGB): `tools/advx.py` reads the
