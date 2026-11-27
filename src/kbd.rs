@@ -945,6 +945,9 @@ pub fn du_packets(kb: &Kbd, new: &KbConfig, current: &KbConfig, palettes: &[[u32
 }
 
 pub fn read_config(d: &Device, kb: &Kbd) -> std::io::Result<KbConfig> {
+    if d.found.dongle().is_some() {
+        return Err(std::io::Error::other(crate::device::DONGLE_NOT_DECODED));
+    }
     if let Some(v) = &kb.via {
         return via_read(d, kb, v);
     }

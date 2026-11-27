@@ -184,14 +184,36 @@ M901P-KS (5710f22a) joined BUILDS 2026-11-06 (8 functions hash-identical to 6707
   2..7 are the password. ApplySetting sends the same report 5 seven bytes long, so the firmware takes
   either length. SendCommand FUN_00486970 = HidD_SetFeature(h, buf, size + 1), GetCommand FUN_00486a00
   = HidD_GetFeature(h, buf, size + 1) then memcpy from buf + 1.
-- 2.4 GHz and Bluetooth are **another protocol**, not another id of this one: `KB.ini [OPT]`
-  VID_Wireless / PID_Wireless (K686AK-RGB-PRO: 3554:fa09) reaches CDevCombo / CDev3632, whose own
-  FindHIDDevice (FUN_004853e0) opens nothing and keeps the handle of the dongle. Everything goes
-  through SendCMD_3632 (FUN_00486000): a 20-byte report `ID CMD 01 00 ..` with a checksum byte
-  (FUN_00485d10) written and read as interrupt reports, answered `ID CMD|crcerr nPackages index
-  LEN&0xf data[0..0xe]` until index + 1 = nPackages; ID is 5 for the keyboard of a combo dongle and
-  0x15 for its mouse, command 0x15 answers the 6-byte password (OnNewCombo FUN_0040c5c0, OnNewDongle
-  FUN_0040c400). Not implemented: dragonize finds nothing on those ids.
+
+### The 2.4 GHz dongle (CDev3632 / CDevCombo, `src/dg.rs`)
+
+2.4 GHz and Bluetooth are **another protocol**, not another id of the wired one. `KB.ini [OPT]`
+VID_Wireless / PID_Wireless names the second id (K686AK-RGB-PRO: 258a:010c wired, 3554:fa09 on the
+dongle); `fleet/gen_wl_ids.py` reads it out of every keyboard package into `src/models_wl.rs`.
+
+- Which interface (FUN_0040c140, over the HIDP_CAPS table FUN_00415b90 fills): **usage page 0xff02**,
+  input and output reports of **0x14 bytes**, and the report id names the dongle: **0x13** = the
+  single-device dongle (tag 0x3632, CDev3632), **0x15** = the combo dongle carrying a keyboard and a
+  mouse (tag 0x5588, CDevCombo). Usage 2 with a 0x208-byte feature report is the third kind (0x8805),
+  another protocol again. `CDev3632::FindHIDDevice` (FUN_004853e0) opens nothing: the handle of that
+  interface is the whole device.
+- Packet, both ways, 20 bytes: `ID CMD PACKETS INDEX ARG<<4|LEN DATA[0..0xe] CHK`. CHK = the low byte
+  of the sum of the other nineteen (FUN_00485d10, inlined again in AccessData). Bit 7 of PACKETS means
+  the device refused ours (FUN_00488c50); SendCMD_3632 looks at bit 7 of CMD for the same thing.
+- Read = SendCMD (FUN_004856e0): one packet, no payload, then the answers until INDEX + 1 = PACKETS.
+  Write = AccessData (FUN_00485440): the payload 14 bytes a packet, each answered by the device
+  echoing CMD, except the commands with bit 7 set (0x88 SetRealData, 0x8e), which are live effects and
+  are not answered. 10 to 15 ms between packets, 500 ms a read, 2 to 5 retries.
+- Commands, read = write + 0x40: 1 / 0x41 Matrix (ARG = layer), 2 / 0x42 Game, 3 / 0x43 Macro,
+  4 / 0x44 Cfg (0x80 bytes, what CDevG5KB calls Cfg), 9 / 0x49 LedRgbTab (3 bytes an entry),
+  0x0a / 0x4a OnBoard (1 byte). The combo dongle answers its own on report 0x15: 5 and 0x15 are the
+  password of its keyboard and of its mouse (the six bytes `kbd::psd` reads on the cable, so the same
+  registry entry names the product), 7 is `bOnline[2]`, which of the two is there (FUN_0040c1f0).
+- **Not decoded**: what those blocks hold. The dongle serialises the settings the way
+  `CDevG5KB::ApplySetting` (FUN_0048cb20) does, filling the 0x80-byte Cfg block in FUN_0048c760 from
+  the app's own model, which is not the ProAddr / KeyAddr layout of the cable. `dragonize --dongle-dump`
+  prints every block as it comes so it can be decoded against a keyboard whose settings are known;
+  until then a device on its dongle is found and named but not configured.
 - Generator: `fleet/gen_kbd.py OUT.json` (Cfg.ini [KEY] K lines or Dev/kb/KB.ini, keyimg.png, protocol
   constants found in the exe by byte patterns) -> `gen_models.py --kbd` (photos scaled to 650x300,
   256 colours, assets/vendor/kbd). 97 keyboards (3 entries without PSD skipped).

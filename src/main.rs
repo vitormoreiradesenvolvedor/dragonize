@@ -11,6 +11,7 @@ mod sino;
 mod ui;
 mod bd;
 mod dc;
+mod dg;
 mod pxi;
 mod mo;
 mod xy;
@@ -236,6 +237,7 @@ fn main() {
         .arg(clap::Arg::new("device-load").long("device-load").value_names(["FILE.pfd", "PROFILE"]).num_args(2).help("Write a saved profile to on-device profile 1-5 (same path as Apply) and exit"))
         .arg(clap::Arg::new("device-roundtrip").long("device-roundtrip").action(clap::ArgAction::SetTrue).help("Check that reading the mouse into the app and encoding it back changes no byte (no write)"))
         .arg(clap::Arg::new("device-apply").long("device-apply").action(clap::ArgAction::SetTrue).help("Run the Apply button's device path (write, reconnect, reopen) with the saved profiles and exit"))
+        .arg(clap::Arg::new("dongle-dump").long("dongle-dump").action(clap::ArgAction::SetTrue).help("Print the blocks a device on its 2.4 GHz dongle answers with (their layout is not decoded yet)"))
         .arg(clap::Arg::new("diagnose").long("diagnose").action(clap::ArgAction::SetTrue).help("Report why the mouse can or cannot be used on this machine"))
         .arg(clap::Arg::new("install-udev-rule").long("install-udev-rule").action(clap::ArgAction::SetTrue).help("Grant the logged-in user access to the mouse (asks for the admin password once)"))
         .arg(clap::Arg::new("no-device").long("no-device").action(clap::ArgAction::SetTrue).help("Do not talk to the mouse (edit saved profiles only)"))
@@ -299,6 +301,22 @@ fn main() {
             Ok(()) => println!("access granted: {}", device::UDEV_PATH),
             Err(e) => {
                 eprintln!("{e}\nmanual install:\n  sudo tee {} <<'EOF'\n{}EOF\n  sudo udevadm control --reload-rules && sudo udevadm trigger", device::UDEV_PATH, device::udev_rule());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if args.get_flag("dongle-dump") {
+        match open_cli() {
+            Ok(d) => match d.found.dongle() {
+                Some(kind) => print!("{}", dg::dump(&d, kind)),
+                None => {
+                    eprintln!("{} is on the cable, not on a dongle", d.found.model.name);
+                    std::process::exit(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("{e}");
                 std::process::exit(1);
             }
         }
