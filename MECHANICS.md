@@ -81,6 +81,12 @@ Nothing tells apart the duilib / xyui / MosArt / libdc / CDrvBY24G mice or the
 HidServ / Jieli keyboards, so those always list every candidate. The selection
 window takes typing to narrow a list that long (41 keyboards answer to
 258a:010c) and remembers the pick.
+A keyboard on its 2.4 GHz dongle is a usb id of its own (`src/models_wl.rs`,
+read out of each package by `tools/re/fleet/gen_wl_ids.py`) and another
+protocol: 20-byte interrupt reports with a checksum, `src/dg.rs`. The dongle
+answers the same password, so the same registry entry names the product; what
+the blocks it serves hold is not decoded, so a device found there is named but
+not configured, and `--dongle-dump` prints the blocks as they come.
 Which hidraw node a device is configured through is decided by reading its
 report descriptor (`src/hid.rs`), as the drivers decide it from HIDP_CAPS:
 the reports the protocol needs, declared as the reports they are, and the

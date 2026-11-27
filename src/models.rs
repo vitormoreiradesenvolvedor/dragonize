@@ -25,6 +25,10 @@ pub use data::MODELS;
 mod cid;
 pub use cid::COMPX_IDS;
 
+#[path = "models_wl.rs"]
+mod wl;
+pub use wl::WIRELESS_IDS;
+
 /// A button slot: its 4-byte function at `profile base + off`, and where its
 /// number is drawn on the product photo (general page box coordinates).
 #[derive(Debug)]
@@ -191,9 +195,23 @@ pub fn identify_kbds(vid: u16, pid: u16, psd: [u8; 6]) -> Vec<&'static Model> {
 pub fn product_ids() -> Vec<(u16, u16)> {
     let mut v: Vec<(u16, u16)> =
         MODELS.iter().flat_map(|m| std::iter::once(m.pid).chain(m.alt_pids.iter().copied()).map(|p| (m.vid, p))).collect();
+    // a keyboard on its 2.4 GHz dongle is a different id of a different vendor, and the udev
+    // rule and the scan both go by this list
+    v.extend(WIRELESS_IDS.iter().map(|(_, vid, pid)| (*vid, *pid)));
     v.sort();
     v.dedup();
     v
+}
+
+/// Every keyboard whose 2.4 GHz dongle shows this usb id (`models_wl.rs`). The product is the
+/// wired entry; only the protocol changes (`dg.rs`).
+pub fn wireless_models(vid: u16, pid: u16) -> Vec<&'static Model> {
+    WIRELESS_IDS.iter().filter(|(_, v, p)| (*v, *p) == (vid, pid)).filter_map(|(k, ..)| by_key(k)).collect()
+}
+
+/// Those of them whose password is `psd`, which the dongle answers as the cable does.
+pub fn identify_wireless(vid: u16, pid: u16, psd: [u8; 6]) -> Vec<&'static Model> {
+    wireless_models(vid, pid).into_iter().filter(|m| m.kb.is_some_and(|k| k.psd == psd)).collect()
 }
 
 impl Model {
@@ -390,6 +408,27 @@ mod tests {
     }
 
     #[test]
+    /// A keyboard on its dongle is a usb id of its own that the wired entries do not carry,
+    /// and almost all of them share it, so the password is what names the product (issue #6).
+    #[test]
+    fn a_dongle_id_is_named_by_the_password() {
+        let keys = |v: Vec<&Model>| v.iter().map(|m| m.key).collect::<Vec<_>>();
+        let on_dongle = wireless_models(0x3554, 0xfa09);
+        assert!(on_dongle.len() > 1, "{} keyboards answer to 3554:fa09", on_dongle.len());
+        assert!(on_dongle.iter().any(|m| m.key == "k686-rgb-pro"));
+        // the wired registry knows nothing of that id, but the scan has to look for it
+        assert!(identify(0x3554, 0xfa09, 0).is_none());
+        assert!(product_ids().contains(&(0x3554, 0xfa09)));
+        // K686AK-RGB-PRO: KB.ini Psd=3,0,0,0,1,20 on the cable and on the dongle alike
+        assert_eq!(keys(identify_wireless(0x3554, 0xfa09, [0x03, 0x00, 0x00, 0x00, 0x01, 0x20])), ["k686-rgb-pro"]);
+        assert!(identify_wireless(0x3554, 0xfa09, [0; 6]).is_empty());
+        assert!(wireless_models(0x258a, 0x010c).is_empty(), "010c is the wired id");
+        // every row names an entry of the registry
+        for (key, ..) in WIRELESS_IDS {
+            assert!(by_key(key).is_some(), "{key} is not in the registry");
+        }
+    }
+
     fn shared_ids_keep_every_candidate() {
         // one password, two keyboards of 258a:010c (issue #2): neither may win by position
         let both = identify_kbds(0x258a, 0x010c, [0x03, 0x00, 0x00, 0x00, 0x01, 0x20]);

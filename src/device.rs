@@ -464,7 +464,14 @@ pub fn diagnose() -> String {
         };
         let _ = writeln!(o, "{}: {vid:04x}:{pid:04x} {how}, {desc}", node.display());
     }
-    let _ = writeln!(o, "udev rule {}: {}", UDEV_PATH, if std::path::Path::new(UDEV_PATH).exists() { "installed" } else { "missing" });
+    // a release that adds a usb id (a dongle, a new product) leaves the installed rule short of
+    // it, and the device is then found but cannot be opened
+    let rule = std::fs::read_to_string(UDEV_PATH).ok();
+    let _ = writeln!(o, "udev rule {}: {}", UDEV_PATH, match rule {
+        None => "missing (dragonize --install-udev-rule)".to_string(),
+        Some(r) if r != udev_rule() => "installed, older than this version (dragonize --install-udev-rule)".to_string(),
+        Some(_) => "installed".to_string(),
+    });
     let _ = writeln!(o, "access: {:?}", access());
     o
 }
@@ -494,6 +501,11 @@ pub fn interfaces() -> Vec<(PathBuf, u16, u16, bool, String)> {
     out
 }
 
+/// What a device on its dongle cannot do yet: the dongle keeps the settings in the layout of
+/// `CDevG5KB`, not the one `kbd.rs` reads on the cable, and that layout is not decoded.
+pub const DONGLE_NOT_DECODED: &str =
+    "on its 2.4 GHz dongle the settings are in a layout that is not decoded yet, so use the cable (--dongle-dump)";
+
 /// A plugged supported mouse: its configuration interface and USB device.
 #[derive(Clone, Debug)]
 pub struct Found {
@@ -513,6 +525,13 @@ impl Found {
     /// sysfs node of the hidraw interface (/sys/class/hidraw/hidrawN)
     pub fn hidraw_sys(&self) -> PathBuf {
         PathBuf::from("/sys/class/hidraw").join(self.hidraw.file_name().unwrap_or_default())
+    }
+
+    /// The device is on its 2.4 GHz dongle, which speaks the protocol of `dg.rs` and not the
+    /// one of the cable.
+    pub fn dongle(&self) -> Option<crate::dg::Dongle> {
+        let rd = std::fs::read(self.hidraw_sys().join("device/report_descriptor")).ok()?;
+        crate::dg::kind(&crate::hid::Desc::of(&rd))
     }
 }
 
@@ -538,6 +557,26 @@ pub fn scan() -> Vec<Found> {
         }
         let rd = std::fs::read(n.join("device/report_descriptor")).unwrap_or_default();
         let d = crate::hid::Desc::of(&rd);
+        // a keyboard on its 2.4 GHz dongle: another usb id (models_wl.rs) on another protocol
+        // (dg.rs), but the same product, and the dongle answers the password of the cable
+        let wl = models::wireless_models(vid as u16, pid as u16);
+        if !wl.is_empty() {
+            let Some(kind) = crate::dg::kind(&d) else { continue };
+            let Ok(dev) = std::fs::canonicalize(n.join("device")) else { continue };
+            let Some(usb) = dev.ancestors().find(|a| a.join("bcdDevice").exists()).map(PathBuf::from) else { continue };
+            let Some(name) = n.file_name() else { continue };
+            let found = Found { hidraw: PathBuf::from("/dev").join(name), usb, bcd: 0, model: wl[0] };
+            let named = Device::open(&found)
+                .ok()
+                .and_then(|dev| crate::dg::psd(&dev, kind, false))
+                .map(|p| models::identify_wireless(vid as u16, pid as u16, p))
+                .filter(|v| !v.is_empty())
+                .unwrap_or(wl);
+            for m in named {
+                out.push(Found { model: m, ..found.clone() });
+            }
+            continue;
+        }
         let mut proto = models::identify(vid as u16, pid as u16, 0).map(|m| m.proto);
         // 258a:1007 is an OemDrv mouse (S101-4-DE: command report 5), the CDrv8832 M712 (no
         // report 5) and the Lavawolf M701 (0x9a-byte general report 4): the descriptor tells which
@@ -994,6 +1033,9 @@ pub struct DeviceConfig {
 }
 
 pub fn read_config(d: &Device) -> std::io::Result<DeviceConfig> {
+    if d.found.dongle().is_some() {
+        return Err(std::io::Error::other(DONGLE_NOT_DECODED));
+    }
     let model = d.found.model;
     if model.is_sino() {
         return crate::sino::read_config(d);
