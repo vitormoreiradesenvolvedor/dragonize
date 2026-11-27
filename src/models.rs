@@ -156,9 +156,12 @@ pub fn needs_psd(vid: u16, pid: u16) -> bool {
         && m.proto == Proto::CompxFeature).count() > 1
 }
 
-/// The keyboard of this id answering password `psd`, when several share the id.
-pub fn identify_kbd(vid: u16, pid: u16, psd: [u8; 6]) -> Option<&'static Model> {
-    MODELS.iter().find(|m| m.vid == vid && m.pid == pid && m.kb.is_some_and(|k| k.psd == psd))
+/// Every keyboard of this id whose password is `psd` (KeyboardDrv / OemDrv GetPassword).
+/// One password is not always unique:
+/// K686-RGB-PRO and K688-RGB-PRO both answer 03 00 00 00 01 20 on 258a:010c, so the caller
+/// offers all of them instead of taking whichever comes first (issue #2).
+pub fn identify_kbds(vid: u16, pid: u16, psd: [u8; 6]) -> Vec<&'static Model> {
+    MODELS.iter().filter(|m| m.vid == vid && m.pid == pid && m.kb.is_some_and(|k| k.psd == psd)).collect()
 }
 
 /// (VID, PID) of every model.
@@ -361,6 +364,22 @@ mod tests {
         assert_eq!(identify_psd(0x25a7, 0xfa7c, 0x33, 0x02).unwrap().key, "m994");
         assert_eq!(identify_psd(0x25a7, 0xfa7b, 0x33, 0x01).unwrap().name, "M693-RGB");
         assert!(!needs_psd(0x25a7, 0xfa68));
+    }
+
+    #[test]
+    fn shared_ids_keep_every_candidate() {
+        // one password, two keyboards of 258a:010c (issue #2): neither may win by position
+        let both = identify_kbds(0x258a, 0x010c, [0x03, 0x00, 0x00, 0x00, 0x01, 0x20]);
+        let keys: Vec<&str> = both.iter().map(|m| m.key).collect();
+        assert_eq!(keys, ["k688-rgb-pro", "k686-rgb-pro"]);
+        assert!(identify_kbds(0x258a, 0x010c, [0; 6]).is_empty());
+        // the CompX mice of one id are not told apart by anything the registry holds (issue #1):
+        // M916AK-PRO reports 3554:f55e wired, and that id alone names M814W-WL
+        let f55e = MODELS.iter().filter(|m| m.vid == 0x3554 && m.proto == Proto::Compx
+            && (m.pid == 0xf55e || m.alt_pids.contains(&0xf55e))).count();
+        assert!(f55e > 1, "3554:f55e is shared, got {f55e} entries");
+        assert_eq!(identify(0x3554, 0xf55e, 0).unwrap().key, "m814w-wl");
+        assert!(by_key("m916-pro-1k").unwrap().alt_pids.contains(&0xf55e));
     }
 
     #[test]

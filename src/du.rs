@@ -7,8 +7,8 @@
 //! Commands (FUN_00484bf0 ..): 01 / 02 begin / end of a write, 03 device info (0x22 bytes),
 //! 04 write it back (first run: [7] 0 -> 0x16), 05 / 06 read / write settings, 07 / 09 read /
 //! write the key table (3 bytes per key), 0xaa does the dongle see the mouse ([8] = 0xff).
-//! Info (FUN_004af040): [0] 0x55aa, [5] number of keys, [7] 0x16 = initialised, [9] sensor,
-//! [0xb] DPI step, [0xc] DPI max, [0xe] DPI min.
+//! Info (FUN_004af040): [0] 0x55aa, [5] number of keys, [7] the build's "initialised" flag
+//! (`init_flag`), [9] sensor, [0xb] DPI step, [0xc] DPI max, [0xe] DPI min.
 //! Settings: [0] active profile; profile p at p * 0x80, 0x57 bytes (FUN_004b2830 / 004af610):
 //!   01 light mode  02 brightness  03 4 - speed  04 direction  05 colourful  06 R  07 G  08 B
 //!   0b report rate (0 125 .. 3 1000 Hz)  0c current stage
@@ -129,6 +129,19 @@ pub(crate) fn write(d: &Device, c: u8, off: u16, data: &[u8]) -> std::io::Result
     Ok(())
 }
 
+/// Byte 7 of the info block: the flag the driver of each build accepts as "this mouse holds a
+/// configuration" and writes to a factory-fresh one. The M916-PLUS build uses 0x16
+/// (FUN_004af040), the M916-LIT build 0x01 (`cmp byte [ecx+0x153b], 1` at 0x4ab794 and
+/// `mov byte [ecx+0x153b], 1` on a fresh mouse, Redragon M916-LIT-1K.exe sha256 b9ef889b).
+/// `info` accepts any non-zero flag, whichever driver wrote it, and only sends this one when the
+/// mouse is fresh, so the Windows driver still recognises its own value afterwards.
+fn init_flag(m: &crate::models::Model) -> u8 {
+    match m.key {
+        "m916-lit" => 0x01,
+        _ => 0x16,
+    }
+}
+
 /// Info block; initialises a factory-fresh mouse the way the driver does.
 pub(crate) fn info(d: &Device) -> std::io::Result<(Info, usize)> {
     let pid = std::fs::read_to_string(d.found.usb.join("idProduct")).ok().and_then(|s| u16::from_str_radix(s.trim(), 16).ok());
@@ -141,11 +154,11 @@ pub(crate) fn info(d: &Device) -> std::io::Result<(Info, usize)> {
     }
     let mut b = read(d, 3, 0, 0x22)?;
     let le = |o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
-    if b[7] != 0x16 {
-        if b[7] != 0 || le(0) != 0x55aa {
+    if b[7] == 0 {
+        if le(0) != 0x55aa {
             return Err(std::io::Error::other("the device reports no configuration (not initialised)"));
         }
-        b[7] = 0x16;
+        b[7] = init_flag(d.found.model);
         cmd(d, 1, 0, 0, &[])?;
         write(d, 4, 0, &b)?;
         cmd(d, 2, 0, 0, &[])?;
@@ -330,6 +343,14 @@ mod tests {
         assert_eq!((cpi(&i(0x3104), 0), cpi(&i(0x3104), 0x36)), (200, 3000));
         let t = table(&i(0x8925));
         assert_eq!((t[0], t[t.len() - 1]), ((50, 0), (10000, 0x95)));
+    }
+
+    #[test]
+    fn init_flag_follows_the_build() {
+        // the M916-LIT build accepts and writes 0x01, every other one 0x16
+        assert_eq!(init_flag(crate::models::by_key("m916-lit").unwrap()), 0x01);
+        assert_eq!(init_flag(crate::models::by_key("m916-plus").unwrap()), 0x16);
+        assert_eq!(init_flag(model()), 0x16);
     }
 
     #[test]

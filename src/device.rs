@@ -403,6 +403,29 @@ pub fn install_udev_rule() -> Result<(), String> {
     }
 }
 
+/// What a device sharing its usb id with other products answers when asked who it is: the
+/// CID / MID of the CompX mice (compx.rs `psd_via`) or the password of the Sinowealth
+/// keyboards (kbd.rs `psd`). The registry cannot always tell them apart from this yet, so
+/// `--diagnose` prints it for device reports.
+fn device_id(f: &Found) -> String {
+    let password = f.model.kb.is_some_and(|k| !k.byk && !k.xy && k.via.is_none() && k.hs.is_none() && k.jl.is_none() && !k.du && !k.mk && !k.mg);
+    let compx = matches!(f.model.proto, models::Proto::Compx | models::Proto::CompxFeature);
+    if !password && !compx {
+        return "nothing it reports tells these apart".into();
+    }
+    let Ok(d) = Device::open(f) else { return "cannot be opened".into() };
+    if password {
+        return match crate::kbd::psd(&d) {
+            Some(p) => format!("password {}", p.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")),
+            None => "no password answer".into(),
+        };
+    }
+    match crate::compx::psd_via(&d, f.model.proto == models::Proto::CompxFeature) {
+        Some((cid, mid)) => format!("CID {cid:02x}, MID {mid:02x}"),
+        None => "no CID / MID answer".into(),
+    }
+}
+
 /// Human-readable report of everything that decides whether the mouse can be used.
 pub fn diagnose() -> String {
     use std::fmt::Write;
@@ -411,9 +434,21 @@ pub fn diagnose() -> String {
     let _ = writeln!(o, "kernel: {}", read("/proc/sys/kernel/osrelease"));
     let _ = writeln!(o, "os: {}", read("/etc/os-release").lines().find(|l| l.starts_with("PRETTY_NAME")).unwrap_or(""));
     let found = scan();
+    // one usb device is listed once per candidate model: report it once, with the candidates
+    // and whatever the device itself says about which of them it is
+    let mut seen: Vec<&PathBuf> = Vec::new();
     for f in &found {
+        if seen.contains(&&f.hidraw) {
+            continue;
+        }
+        seen.push(&f.hidraw);
         let rw = OpenOptions::new().read(true).write(true).open(&f.hidraw).map(|_| "read/write OK".to_string()).unwrap_or_else(|e| e.to_string());
         let _ = writeln!(o, "{}: {} ({:04x}:{:04x} rev {:04x}, usb {}): {}", f.hidraw.display(), f.model.name, f.model.vid, f.model.pid, f.bcd, f.usb_name(), rw);
+        let same: Vec<&str> = found.iter().filter(|g| g.hidraw == f.hidraw).map(|g| g.model.name).collect();
+        if same.len() > 1 {
+            let _ = writeln!(o, "  {} candidates share this id: {}", same.len(), same.join(", "));
+            let _ = writeln!(o, "  the device says: {}", device_id(f));
+        }
     }
     if found.is_empty() {
         let _ = writeln!(o, "no supported mouse ({}) found on USB",
@@ -542,11 +577,24 @@ pub fn scan() -> Vec<Found> {
             }
             found.model = model;
         }
-        // one id, dozens of keyboards: their password (KeyboardDrv / OemDrv GetPassword)
-        if model.kb.is_some_and(|k| !k.byk && !k.xy && k.via.is_none() && k.hs.is_none() && k.jl.is_none() && !k.du && !k.mk && !k.mg) && models::MODELS.iter().filter(|m| m.vid == vid as u16 && m.pid == pid as u16).count() > 1 {
-            if let Some(p) = Device::open(&found).ok().and_then(|d| crate::kbd::psd(&d)) {
-                found.model = models::identify_kbd(vid as u16, pid as u16, p).unwrap_or(model);
+        // one id, dozens of keyboards: their password (KeyboardDrv / OemDrv GetPassword). The
+        // password names one of them only when it answers and no other entry of the id shares it;
+        // otherwise every candidate is listed and the selection dialog names the keyboard
+        let pw_family = |m: &&models::Model| {
+            m.vid == vid as u16 && m.pid == pid as u16
+                && m.kb.is_some_and(|k| !k.byk && !k.xy && k.via.is_none() && k.hs.is_none() && k.jl.is_none() && !k.du && !k.mk && !k.mg)
+        };
+        if pw_family(&model) && models::MODELS.iter().filter(pw_family).count() > 1 {
+            let pw = Device::open(&found).ok().and_then(|d| crate::kbd::psd(&d));
+            let mut named = pw.map(|p| models::identify_kbds(vid as u16, pid as u16, p)).unwrap_or_default();
+            if named.is_empty() {
+                // no answer, or a password no entry carries: every keyboard of the id is a candidate
+                named = models::MODELS.iter().filter(pw_family).collect();
             }
+            for m in named {
+                out.push(Found { model: m, ..found.clone() });
+            }
+            continue;
         }
         // HidServ: dozens of keyboards answer as 0c45:5004 and nothing tells them apart; one
         // entry per candidate, the device selection dialog lets the user name theirs. Jieli: the
@@ -555,8 +603,12 @@ pub fn scan() -> Vec<Found> {
         // (xyui mice: one 2.4 GHz dongle id for all of them)
         // CDrvBY24G mice: M602-KS, M910-KS, M811-RGB-PRO and M690-PRO share 258a:002e / 002f
         // (old OemDrv mice without a CID / MID: M913, M915RGB-WL, M808-KS, M901P-KS on 25a7:fa08)
+        // CompX mice: 3554:f55d / f55e / f5d5 serve dozens of products (M916-PRO-1K, M814W-WL,
+        // M913-WL ...) and only their CID / MID tells them apart, which the registry does not
+        // carry yet, so they are all listed too (issue #1)
         let same = |m: &&models::Model| m.proto == model.proto && m.bcd == model.bcd && m.vid == vid as u16 && (m.pid == pid as u16 || m.alt_pids.contains(&(pid as u16)));
-        let shared = model.proto == models::Proto::CompxFeature && model.bcd == (0, 0) && models::MODELS.iter().filter(same).count() > 1;
+        let shared = matches!(model.proto, models::Proto::Compx | models::Proto::CompxFeature)
+            && model.bcd == (0, 0) && models::MODELS.iter().filter(same).count() > 1;
         if model.is_du() || model.is_xy() || model.is_mo() || model.is_dc() || model.proto == models::Proto::SinoBy24g || shared {
             for m in models::MODELS.iter().filter(same) {
                 out.push(Found { model: m, ..found.clone() });
@@ -580,6 +632,26 @@ pub fn scan() -> Vec<Found> {
         out.push(found);
     }
     out
+}
+
+/// The device to open without asking, out of everything `scan` found: the one on the USB port
+/// already in use (its entry for the current model first), the only one plugged, or the model
+/// picked last time if it is still the only entry carrying that key. None of those and the
+/// selection window asks, which is what one USB id serving several products needs.
+pub fn pick<'a>(found: &'a [Found], target: Option<&str>, cur: &models::Model, picked: Option<&str>) -> Option<&'a Found> {
+    if let Some(t) = target {
+        let on = || found.iter().filter(|f| f.usb_name() == t);
+        if let Some(f) = on().find(|f| std::ptr::eq(f.model, cur)).or_else(|| on().next()) {
+            return Some(f);
+        }
+    }
+    if found.len() == 1 {
+        return found.first();
+    }
+    let key = picked?.trim();
+    let mut on = found.iter().filter(|f| f.model.key == key);
+    let first = on.next()?;
+    on.next().is_none().then_some(first)
 }
 
 pub struct Device {
@@ -1357,5 +1429,27 @@ mod tests {
             MacroStep { action: Action::Up, key: "F13".into(), ms: 0 },
         ];
         assert_eq!(&encode_macro(&m).unwrap()[..9], &[0x84, 0x68, 0, 0x06, 50, 0, 0x04, 0x68, 0]);
+    }
+
+    #[test]
+    fn pick_takes_the_remembered_model_of_a_shared_id() {
+        let m = |k: &str| crate::models::by_key(k).expect("entry");
+        let f = |model: &'static crate::models::Model| Found {
+            hidraw: PathBuf::from("/dev/hidraw0"),
+            usb: PathBuf::from("/sys/bus/usb/devices/3-2"),
+            bcd: 0,
+            model,
+        };
+        // 3554:f55e lists 24 CompX mice: without a hint the selection window has to ask
+        let found = vec![f(m("m814w-wl")), f(m("m916-pro-1k")), f(m("m913-wl"))];
+        let cur = m("m912-rgb");
+        assert!(pick(&found, None, cur, None).is_none());
+        // the one picked last time wins, and an unknown or absent key still asks
+        assert_eq!(pick(&found, None, cur, Some("m916-pro-1k\n")).map(|g| g.model.key), Some("m916-pro-1k"));
+        assert!(pick(&found, None, cur, Some("m998-std-1k")).is_none());
+        // the port already in use wins over it, with the current model's entry first
+        assert_eq!(pick(&found, Some("3-2"), m("m913-wl"), Some("m814w-wl")).map(|g| g.model.key), Some("m913-wl"));
+        // one device plugged needs no hint at all
+        assert_eq!(pick(&found[..1], None, cur, None).map(|g| g.model.key), Some("m814w-wl"));
     }
 }

@@ -74,7 +74,15 @@ fn xfer_via(d: &Device, feature: bool, cmd: u8, addr: u16, data: &[u8], len: u8)
 /// OemDrv CheckPsd (build 43d56b1f FUN_0044ff10): command 1 with a 4-byte challenge,
 /// len 8; the answer carries the mouse's chip ids CID, MID at data 4, 5.
 pub fn psd(d: &Device) -> Option<(u8, u8)> {
-    let r = xfer_via(d, true, 1, 0, &[0x11, 0x22, 0x33, 0x44], 8).ok()?;
+    psd_via(d, true)
+}
+
+/// The same question over the plain output report 8 of the "Mouse Drive Beta" mice
+/// (`feature` false). Their registry entries carry no CID / MID yet, so `--diagnose` prints
+/// what the mouse answers: that is what names one product among the dozens sharing
+/// 3554:f55d / f55e / f5d5 (issue #1).
+pub fn psd_via(d: &Device, feature: bool) -> Option<(u8, u8)> {
+    let r = xfer_via(d, feature, 1, 0, &[0x11, 0x22, 0x33, 0x44], 8).ok()?;
     (r[4] != 0 || r[5] != 0).then_some((r[4], r[5]))
 }
 

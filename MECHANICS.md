@@ -65,8 +65,19 @@ read (`dragonize --diagnose`) to confirm it is rev 2.xx.
 Several mice: `device::scan()` lists every plugged supported mouse (vendor
 page 0xffa0 interface); one is opened directly, several open a selection
 window (photo, name, USB port); clicking the model name in the header
-switches later. Profiles of other models live in
+switches later. The pick is kept in `~/.config/m801-rgb/.../model`, so the
+window does not come back on the next start. Profiles of other models live in
 `~/.config/m801-rgb/models/<key>/`; the M801 keeps its original location.
+
+One USB id, several products: a device whose id is served by more than one
+registry entry is listed once per candidate, and the selection window names
+them. That is every duilib / xyui / MosArt / libdc / CDrvBY24G mouse, the
+CompX mice of 3554:f55d / f55e / f5d5 (24 products on f55e alone; only the
+firmware's CID / MID tells them apart and the registry does not carry it yet)
+and the Sinowealth keyboards of one id whose password (`kbd::psd`) does not
+answer or is shared by several entries (K686-RGB-PRO and K688-RGB-PRO both
+answer 03 00 00 00 01 20 on 258a:010c). `--diagnose` prints the candidates
+and what the device itself reports, so a device report carries it.
 The udev rule lists every supported PID (04d9 alone would match unrelated
 Holtek devices). CLI: `--list-models`, `--model KEY`, `--usb PORT`.
 
