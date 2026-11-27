@@ -193,6 +193,8 @@ const PICKER: Rect = Rect::new(329, 293, 130, 122);
 const MENU_W: i32 = 148;
 const MENU_ITEM_H: i32 = 20;
 const DLG: Rect = Rect::new(158, 166, 478, 292);
+/// rows of the device selection dialog that fit between its filter box and its buttons
+const DEV_VIS: usize = 3;
 const MAC: Rect = Rect::new(19, 21, 757, 582);
 const MAC_ROWS_Y: i32 = 164;
 const MAC_ROW_H: i32 = 23;
@@ -457,7 +459,7 @@ enum Dialog {
     /// The mouse is there but its device node is root-only: offer the udev rule.
     Permission,
     /// Several supported mice are plugged: pick the one to configure.
-    SelectDevice { list: Vec<crate::device::Found>, sel: usize, top: usize },
+    SelectDevice { list: Vec<crate::device::Found>, sel: usize, top: usize, filter: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -568,6 +570,7 @@ const DRAG_SLIDER: u8 = 1;
 const DRAG_DPI: u8 = 2;
 const DRAG_PICKER: u8 = 3;
 const DRAG_MAC_SCROLL: u8 = 4;
+const DRAG_DEV_SCROLL: u8 = 5;
 
 impl State {
     pub fn new(base: PathBuf, lang: Lang) -> State {
@@ -785,9 +788,10 @@ impl State {
                 list.iter().position(|f| &f.usb_name() == t && std::ptr::eq(f.model, cur)).or_else(|| list.iter().position(|f| &f.usb_name() == t))
             })
             .unwrap_or(0);
-        // 3 rows are visible: scroll the preselected one into view (24 CompX mice share 3554:f55e)
-        let top = sel.saturating_sub(2).min(list.len().saturating_sub(3));
-        self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel, top }));
+        // DEV_VIS rows are visible: scroll the preselected one into view (41 keyboards share
+        // 258a:010c, 24 CompX mice 3554:f55e)
+        let top = sel.saturating_sub(DEV_VIS - 1).min(list.len().saturating_sub(DEV_VIS));
+        self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel, top, filter: String::new() }));
     }
 
     /// Sends the UI profiles to the mouse (only changed fields), verified by read-back.
@@ -1242,8 +1246,25 @@ impl State {
             let w = p.width(model.name, &st);
             p.text(733 - w, 96 - size as i32 - 4, model.name, &st);
         }
-        // the product name switches between mice when several are plugged
+        // the product name switches between devices when several are plugged. Nothing said so,
+        // so a label says it whenever there is more than one of them to go to (issue #2)
         let name_r = Rect::new(575, 44, 160, 70);
+        let ports = {
+            let mut p: Vec<&str> = self.hotplug.iter().flat_map(|h| h.seen.iter().map(|(u, _)| u.as_str())).collect();
+            p.sort_unstable();
+            p.dedup();
+            p.len()
+        };
+        if ports > 1 {
+            let st = TextStyle::new(11.0, Weight::Regular, rgb(0xb4b4b4));
+            let label = format!("⇄  {}", s.s("General", 100));
+            let w = p.width(&label, &st) as i32;
+            let chip = Rect::new(733 - w - 12, 100, w + 12, 16);
+            let hot = chip.contains(self.inp.mouse) && self.top() == 0;
+            p.fill(chip, rgb(if hot { 0x8c0000 } else { 0x1c1c1c }));
+            p.cv.frame(chip, 1, rgb(if hot { 0xc80000 } else { 0x555555 }));
+            p.text_in(chip, &label, &st);
+        }
         if self.top() == 0 && self.clicked(0, name_r) {
             let found = crate::device::scan();
             if found.len() > 1 {
@@ -2236,24 +2257,112 @@ impl State {
                     y += 20;
                 }
             }
-            Dialog::SelectDevice { list, sel, top } => {
-                // one row per plugged mouse: photo, name, USB port; double-click = OK
-                const VIS: usize = 3;
-                let area = Rect::new(DLG.x + 40, 232, DLG.w - 80, 48 * VIS as i32);
+            Dialog::SelectDevice { list, sel, top, filter } => {
+                // one row per plugged device: photo, name, USB port; double-click = OK. One usb id
+                // can be served by dozens of entries (41 keyboards answer to 258a:010c), so the
+                // list is typed down to the product's name and the rest of it scrolls
+                if active {
+                    for c in self.inp.text.chars() {
+                        if filter.chars().count() < 24 && !c.is_control() {
+                            filter.push(c);
+                        }
+                    }
+                    for k in &keys {
+                        if k.pressed && k.name == "Backspace" {
+                            filter.pop();
+                        }
+                    }
+                }
+                let hay = filter.to_lowercase();
+                let view: Vec<usize> = list
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| hay.is_empty() || f.model.name.to_lowercase().contains(&hay) || f.usb_name().contains(&hay))
+                    .map(|(i, _)| i)
+                    .collect();
+                let fr = Rect::new(DLG.x + 40, 223, DLG.w - 80, 20);
+                p.fill(fr, rgb(0x141414));
+                p.cv.frame(fr, 1, rgb(if filter.is_empty() { 0x444444 } else { 0xc80000 }));
+                if filter.is_empty() {
+                    p.text(fr.x + 7, fr.y + 3, &s.s("General", 98), &T_POLL);
+                } else {
+                    p.text(fr.x + 7, fr.y + 2, &format!("{filter}{}", if blink() { "|" } else { "" }), &T_DLG);
+                }
+                let count = format!("{} / {}", view.len(), list.len());
+                p.text(fr.x + fr.w - p.width(&count, &T_POLL) as i32 - 7, fr.y + 3, &count, &T_POLL);
+                let area = Rect::new(DLG.x + 40, 247, DLG.w - 80, 46 * DEV_VIS as i32);
+                let bar = view.len() > DEV_VIS;
+                let track = Rect::new(area.x + area.w - 10, area.y, 10, area.h);
+                let max_top = view.len().saturating_sub(DEV_VIS);
                 let w = if active { self.wheel(layer, area) } else { 0 };
-                *top = (*top as i32 - w).clamp(0, list.len().saturating_sub(VIS) as i32) as usize;
-                for row in 0..VIS.min(list.len()) {
-                    let i = *top + row;
+                *top = (*top as i32 - w).clamp(0, max_top as i32) as usize;
+                // the selection follows the filter: keep it on a row the list still shows
+                if !view.contains(sel) {
+                    *sel = view.first().copied().unwrap_or(0);
+                    *top = 0;
+                }
+                let at = view.iter().position(|i| i == sel).unwrap_or(0);
+                for k in &keys {
+                    if !k.pressed {
+                        continue;
+                    }
+                    let step = |n: usize| view.get(at.saturating_add(n).min(view.len().saturating_sub(1))).copied();
+                    let back = |n: usize| view.get(at.saturating_sub(n)).copied();
+                    let moved = match k.name.as_str() {
+                        "Enter" => {
+                            ok = true;
+                            None
+                        }
+                        "ArrowDown" => step(1),
+                        "ArrowUp" => back(1),
+                        "PageDown" => step(DEV_VIS),
+                        "PageUp" => back(DEV_VIS),
+                        "Home" => view.first().copied(),
+                        "End" => view.last().copied(),
+                        _ => None,
+                    };
+                    if let Some(i) = moved {
+                        *sel = i;
+                    }
+                }
+                let at = view.iter().position(|i| i == sel).unwrap_or(0);
+                if at < *top {
+                    *top = at;
+                } else if at >= *top + DEV_VIS {
+                    *top = at + 1 - DEV_VIS;
+                }
+                *top = (*top).min(max_top);
+                let thumb_h = (track.h as usize * DEV_VIS / view.len().max(1)).max(16) as i32;
+                let thumb_y = |t: usize| track.y + ((track.h - thumb_h) as usize * t / max_top.max(1)) as i32;
+                if bar && active && self.pressed(layer, track) {
+                    let ty = thumb_y(*top);
+                    let m = self.inp.mouse.1;
+                    if m >= ty && m < ty + thumb_h {
+                        self.drag = Some((DRAG_DEV_SCROLL, (m - ty) as usize));
+                    } else {
+                        *top = if m < ty { top.saturating_sub(DEV_VIS) } else { (*top + DEV_VIS).min(max_top) };
+                    }
+                }
+                if let Some((DRAG_DEV_SCROLL, grab)) = self.drag {
+                    if bar && self.inp.down && active {
+                        let free = (track.h - thumb_h).max(1);
+                        let y = (self.inp.mouse.1 - grab as i32 - track.y).clamp(0, free);
+                        *top = ((y as f32 / free as f32) * max_top as f32).round() as usize;
+                    }
+                }
+                let rw = area.w - if bar { 14 } else { 0 };
+                for row in 0..DEV_VIS.min(view.len().saturating_sub(*top)) {
+                    let i = view[*top + row];
                     let f = &list[i];
-                    let r = Rect::new(area.x, area.y + 48 * row as i32, area.w, 46);
+                    let r = Rect::new(area.x, area.y + 46 * row as i32, rw, 44);
                     let on = *sel == i;
                     p.fill(r, if on { rgb(0x3a0006) } else { rgb(0x1c1c1c) });
                     p.cv.frame(r, 1, if on { RED } else { rgb(0x444444) });
                     let thumb = f.model.photo.filter(|_| !f.model.is_m801()).map(|ph| format!("thumb/{ph}")).unwrap_or("thumb/mouse".into());
                     let th = p.r.img(&thumb).h;
-                    p.img(&thumb, r.x + 6, if th < 43 { r.y + (46 - th) / 2 } else { r.y + 2 });
-                    p.text(r.x + 46, r.y + 7, f.model.name, &T_DLG);
-                    p.text(r.x + 46, r.y + 26, &format!("USB {}  ·  {}", f.usb_name(), f.hidraw.display()), &T_POLL);
+                    p.img(&thumb, r.x + 6, if th < 41 { r.y + (44 - th) / 2 } else { r.y + 2 });
+                    p.text(r.x + 46, r.y + 6, f.model.name, &T_DLG);
+                    p.text(r.x + 46, r.y + 25, &format!("USB {}  ·  {}", f.usb_name(), f.hidraw.display()), &T_POLL);
                     if active && self.pressed(layer, r) {
                         if *sel == i && self.inp.double {
                             ok = true;
@@ -2261,21 +2370,9 @@ impl State {
                         *sel = i;
                     }
                 }
-                for k in &keys {
-                    if k.pressed && k.name == "Enter" {
-                        ok = true;
-                    }
-                    if k.pressed && k.name == "ArrowDown" {
-                        *sel = (*sel + 1).min(list.len() - 1);
-                    }
-                    if k.pressed && k.name == "ArrowUp" {
-                        *sel = sel.saturating_sub(1);
-                    }
-                }
-                if *sel < *top {
-                    *top = *sel;
-                } else if *sel >= *top + VIS {
-                    *top = *sel + 1 - VIS;
+                if bar {
+                    p.fill(track, rgb(0x141414));
+                    p.fill(Rect::new(track.x + 2, thumb_y(*top), track.w - 4, thumb_h), rgb(0x8c0000));
                 }
             }
             Dialog::Notice(msg) => {
@@ -2873,7 +2970,21 @@ impl State {
                     model: crate::models::by_key(key).expect("model"),
                 };
                 let list = vec![fake(crate::models::M801, "1-4", 3), fake("m711", "3-2", 7), fake("legend", "3-1", 9)];
-                self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel: 1, top: 0 }));
+                self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel: 1, top: 0, filter: String::new() }));
+            }
+            "select_many" => {
+                // the keyboards of 258a:010c, the whole id when none of them answered the password
+                let list: Vec<crate::device::Found> = crate::models::MODELS
+                    .iter()
+                    .filter(|m| m.vid == 0x258a && m.pid == 0x010c)
+                    .map(|m| crate::device::Found {
+                        hidraw: PathBuf::from("/dev/hidraw11"),
+                        usb: PathBuf::from("/sys/bus/usb/devices/3-2"),
+                        bcd: 0x2003,
+                        model: m,
+                    })
+                    .collect();
+                self.layers.push(Layer::Dialog(Dialog::SelectDevice { list, sel: 0, top: 0, filter: String::new() }));
             }
             "busy" => {
                 let (_tx, rx) = std::sync::mpsc::channel();
@@ -3303,6 +3414,26 @@ mod tests {
         h.click(318, 172);
         h.wheel(668, 300, 500, false);
         assert_eq!(h.st.profiles[0].dpi[4], 10000);
+    }
+
+    /// 41 keyboards answer to 258a:010c and three rows are visible, so the list has to be
+    /// reachable by something other than the wheel (issue #2).
+    #[test]
+    fn a_shared_id_is_typed_down_to_one_keyboard() {
+        let mut h = H::new("many");
+        let strs = Strings::load(Lang::Tc);
+        h.st.scene("select_many", &strs);
+        let n = crate::models::MODELS.iter().filter(|m| m.vid == 0x258a && m.pid == 0x010c).count();
+        assert!(n > DEV_VIS * 4, "{n} keyboards share the id");
+        // End reaches the last row of the whole id, which three visible rows never showed
+        h.tap("End");
+        h.tap("ArrowUp");
+        // typing names the product: one row is left and the selection moves to it
+        h.text("k686");
+        h.tap("Enter");
+        assert!(h.st.layers.is_empty());
+        assert_eq!(crate::models::current().key, "k686-rgb-pro");
+        assert_eq!(h.st.target.as_deref(), Some("3-2"));
     }
 
     #[test]
